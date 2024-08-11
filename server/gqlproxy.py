@@ -31,7 +31,7 @@ def connectProxy(app):
     @collectTime("gqlquery")
     @app.post("/gql", response_class=JSONResponse)
     async def apigql_post(data: Item, request: Request):
-        print(data)
+        print(data, flush=True)
         gqlQuery = {}
         if (data.operationName) is not None:
             gqlQuery["operationName"] = data.operationName
@@ -40,7 +40,7 @@ def connectProxy(app):
         if (data.variables) is not None:
             gqlQuery["variables"] = data.variables
 
-        print(gqlQuery)
+        print(gqlQuery, flush=True)
         # print(demoquery)
         headers = request.headers
         print(headers)
