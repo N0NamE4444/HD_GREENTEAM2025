@@ -84,8 +84,23 @@ async def emailMapper(asyncSessionMaker, email):
     return None if row is None else row.id
 
 def getDemoData():
+    adminEmail = os.getenv("ADMIN_DEFAULT_EMAIL", "john.newbie@world.com")
+    adminPassword = os.getenv("ADMIN_DEFAULT_PASSWORD", "john.newbie@world.com")
+
     with open("./systemdata.json", "r", encoding="utf-8") as f:
         jsonData = json.load(f)
+
+    users = jsonData.get("users", [])
+    if len(users) == 0:
+        users = [
+            {"id": f"{uuid.uuid4()}", "email": adminEmail, "password": adminPassword }
+        ]
+        jsonData["users"] = users
+    else:
+        user = users[0]
+        user["email"] = adminEmail, 
+        user["password"] = adminPassword
+    
     return jsonData
 
 async def initDB(asyncSessionMaker):
