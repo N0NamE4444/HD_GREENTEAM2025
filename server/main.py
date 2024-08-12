@@ -1,5 +1,6 @@
 import logging
 import os
+import asyncio
 import aiohttp
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, RedirectResponse, HTMLResponse
@@ -62,7 +63,8 @@ async def RunOnceAndReturnSessionMaker():
 
     logging.info(f"initializing system structures")
 
-    await initDB(asyncSessionMaker)
+    asyncio.create_task(initDB(asyncSessionMaker))
+    # await initDB(asyncSessionMaker)
 
     logging.info(f"all done")
     return asyncSessionMaker
@@ -188,6 +190,7 @@ async def bindedEmailMapper(email):
     return result
 
 db_users = [{"id": user["id"], "email": user["email"]} for user in users]
+print(f"first user {db_users[0]}", flush=True)
 app.mount("/oauth", OAuthServer.createServer(
     db_users=db_users,
     passwordValidator=bindedPasswordValidator,
