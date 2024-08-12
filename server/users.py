@@ -98,7 +98,7 @@ def getDemoData():
         jsonData["users"] = users
     else:
         user = users[0]
-        user["email"] = adminEmail, 
+        user["email"] = adminEmail
         user["password"] = adminPassword
     
     return jsonData
