@@ -123,11 +123,11 @@ async def initDB(asyncSessionMaker):
             assert id is not None, f"user {row} has no id"
             user = UserModel(id=id, email=email, password=hashedpassword)
             row = await loader.load(id)
-            logging.info(f"got {row}")
+            # logging.info(f"got {row}")
             try:
-                logging.info(f"{user} [{user.email}] inserting in DB")
+                # logging.info(f"{user} [{user.email}] inserting in DB")
                 await loader.insert(user)
-                logging.info(f"{user} inserted in DB")
+                # logging.info(f"{user} inserted in DB")
             except:
                 pass
 
