@@ -3,7 +3,7 @@ version: "3.8"
 x-services-volume:
   &system-data-volume
   type: bind
-  source: ./systemdata.rnd.json
+  source: ./systemdata.min.json
   target: /app/systemdata.json
 
 services:
