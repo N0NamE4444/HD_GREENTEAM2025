@@ -3,7 +3,7 @@ version: "3.8"
 x-services-volume:
   &system-data-volume
   type: bind
-  source: ./systemdata.min.json
+  source: ./systemdata.rnd.json
   target: /app/systemdata.json
 
 services:
@@ -111,8 +111,8 @@ services:
     # deploy:
     #   replicas: 3
     restart: on-failure:3 # nedojde k restartu pokud je kontejner "unhealthy", maximalne 3 pokusy
-    ports:
-      - 33012:8000
+    # ports:
+    #   - 33012:8000
     volumes:
       - <<: *system-data-volume
     depends_on:
