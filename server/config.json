@@ -5,6 +5,18 @@
         "authors": "Hrbolek",
         "markdownfile": "ug.md"
     },
+    "auto": { 
+        "file": "auto.html",
+        "title": "Automat",
+        "authors": "Hrbolek's automata",
+        "markdownfile": "auto.md"
+    },
+    "all": { 
+        "file": "all.html",
+        "title": "Nej",
+        "authors": "Hrbolek + students",
+        "markdownfile": "all.md"
+    },
     "events": { 
         "file": "events.html",
         "title": "Rozvrh",
