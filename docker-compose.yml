@@ -1,5 +1,11 @@
 version: "3.8"
 
+x-services-volume:
+  &system-data-volume
+  type: bind
+  source: ./systemdata.min.json
+  target: /app/systemdata.json
+
 services:
   frontend:
     image: hrbolek/frontend
@@ -13,7 +19,10 @@ services:
       - POSTGRES_PASSWORD=example
       - POSTGRES_DB=data
       - GQL_PROXY=http://apollo:3000/api/gql/
-      - SALT=fe1c71b2-74c0-41e5-978f-eecbffac7418
+      - SALT=8ac4785b-b68b-4eaa-9158-36bbe9566c76
+      - ADMIN_DEFAULT_EMAIL=john.newbie@world.com
+      - ADMIN_DEFAULT_PASSWORD=8ac4785b-b68b-4eaa-9158-36bbe9566c76
+
     healthcheck:
       # definice, umoznujici provest test, zda je kontejner v poradku (vsimnete si portu)
       test: "curl -f -X GET http://localhost:8000/ || exit 1"
@@ -25,6 +34,8 @@ services:
 
     ports:
       - 33001:8000
+    volumes:
+      - <<: *system-data-volume
     # volumes:
     # # for development
     #   - ./server/htmls:/app/server/htmls
@@ -54,7 +65,8 @@ services:
           {"name": "projects", "url": "http://gql_projects:8000/gql"},
           {"name": "lessons", "url": "http://gql_lessons:8000/gql"},
           {"name": "surveys", "url": "http://gql_surveys:8000/gql"},
-          {"name": "externalids", "url": "http://gql_externalids:8000/gql"}
+          {"name": "externalids", "url": "http://gql_externalids:8000/gql"},
+          {"name": "admissions", "url": "http://gql_admissions:8000/gql"}
           
         ]       
     healthcheck:
@@ -103,8 +115,10 @@ services:
     # deploy:
     #   replicas: 3
     restart: on-failure:3 # nedojde k restartu pokud je kontejner "unhealthy", maximalne 3 pokusy
-    ports:
-      - 33012:8000
+    # ports:
+    #   - 33012:8000
+    volumes:
+      - <<: *system-data-volume
     depends_on:
       - postgres_gql
 
@@ -134,6 +148,8 @@ services:
     restart: on-failure:3 # nedojde k restartu pokud je kontejner "unhealthy", maximalne 3 pokusy
     # ports:
     #   - 33331:8000
+    volumes:
+      - <<: *system-data-volume
     depends_on:
       - postgres_gql
 
@@ -164,6 +180,8 @@ services:
     restart: on-failure:3 # nedojde k restartu pokud je kontejner "unhealthy", maximalne 3 pokusy
     # ports:
     #   - 33331:8000
+    volumes:
+      - <<: *system-data-volume
     depends_on:
       - postgres_gql
 
@@ -191,6 +209,8 @@ services:
     restart: on-failure:3 # nedojde k restartu pokud je kontejner "unhealthy", maximalne 3 pokusy
     # ports:
     #   - 33331:8000
+    volumes:
+      - <<: *system-data-volume
     depends_on:
       - postgres_gql
 
@@ -216,6 +236,8 @@ services:
       start_period: 60s
       timeout: 10s
     restart: on-failure:3 # nedojde k restartu pokud je kontejner "unhealthy", maximalne 3 pokusy
+    volumes:
+      - <<: *system-data-volume
     depends_on:
       - postgres_gql
 
@@ -243,6 +265,8 @@ services:
     restart: on-failure:3 # nedojde k restartu pokud je kontejner "unhealthy", maximalne 3 pokusy
     # ports:
     #   - 33013:8000
+    volumes:
+      - <<: *system-data-volume
     depends_on:
       - postgres_gql
 
@@ -271,6 +295,8 @@ services:
     # ports:
     #   - 33013:8000
     command: uvicorn main:app --host 0.0.0.0 --port 8000
+    volumes:
+      - <<: *system-data-volume
     depends_on:
       - postgres_gql
 
@@ -298,6 +324,8 @@ services:
     restart: on-failure:3 # nedojde k restartu pokud je kontejner "unhealthy", maximalne 3 pokusy
     # ports:
     #   - 33013:8000
+    volumes:
+      - <<: *system-data-volume
     depends_on:
       - postgres_gql
 
@@ -325,9 +353,10 @@ services:
     restart: on-failure:3 # nedojde k restartu pokud je kontejner "unhealthy", maximalne 3 pokusy
     # ports:
     #   - 33013:8000
+    volumes:
+      - <<: *system-data-volume
     depends_on:
       - postgres_gql
-
 
   gql_surveys:
     image: hrbolek/gql_surveys
@@ -351,10 +380,38 @@ services:
       start_period: 60s
       timeout: 10s
     restart: on-failure:3 # nedojde k restartu pokud je kontejner "unhealthy", maximalne 3 pokusy
-    ports:
-      - 33013:8000
+    # ports:
+    #   - 33013:8000
+    volumes:
+      - <<: *system-data-volume
     depends_on:
       - postgres_gql
+
+  gql_admissions:
+    image: hrbolek/gql_admissions
+    environment:
+      # link na db mimo stack
+      # - POSTGRES_HOST=host.docker.internal:5432
+      - POSTGRES_HOST=postgres_gql:5432
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=example
+      - POSTGRES_DB=data
+      - GQLUG_ENDPOINT_URL=http://gql_ug:8000/gql
+      - DEMO=False
+      - DEMODATA=True
+    healthcheck:
+      # definice, umoznujici provest test, zda je kontejner v poradku
+      test: "curl -f -H 'Content-Type: application/json' -X POST -d '{\"query\":\"query{__schema{types{name}}}\"}' http://localhost:8000/gql || exit 1"
+      interval: 60s
+      retries: 3
+      start_period: 60s
+      timeout: 10s
+    restart: on-failure:3 # nedojde k restartu pokud je kontejner "unhealthy", maximalne 3 pokusy
+    volumes:
+      - <<: *system-data-volume
+    depends_on:
+      - postgres_gql
+
 
   postgres_gql:
     image: postgres
@@ -369,8 +426,8 @@ services:
       timeout: 10s
       retries: 5
     restart: on-failure:3 # nedojde k restartu pokud je kontejner "unhealthy", maximalne 3 pokusy
-    ports:
-      - 5432:5432
+    # ports:
+    #   - 5432:5432
 
   postgres_credentials:
     image: postgres
@@ -385,8 +442,8 @@ services:
       timeout: 10s
       retries: 5
     restart: on-failure:3 # nedojde k restartu pokud je kontejner "unhealthy", maximalne 3 pokusy
-    ports:
-      - 5433:5432
+    # ports:
+    #   - 5433:5432
 
   analytics:
     image: hrbolek/analytics
@@ -406,8 +463,8 @@ services:
       interval: 60s
       timeout: 10s
       retries: 5
-    ports:
-      - 31122:80
+    # ports:
+    #   - 31122:80
 
   prometheus:
     image: prom/prometheus

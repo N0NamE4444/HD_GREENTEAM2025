@@ -62,7 +62,8 @@ services:
           {"name": "projects", "url": "http://gql_projects:8000/gql"},
           {"name": "lessons", "url": "http://gql_lessons:8000/gql"},
           {"name": "surveys", "url": "http://gql_surveys:8000/gql"},
-          {"name": "externalids", "url": "http://gql_externalids:8000/gql"}
+          {"name": "externalids", "url": "http://gql_externalids:8000/gql"},
+          {"name": "admissions", "url": "http://gql_admissions:8000/gql"}
           
         ]       
     healthcheck:
@@ -354,7 +355,6 @@ services:
     depends_on:
       - postgres_gql
 
-
   gql_surveys:
     image: hrbolek/gql_surveys
     environment:
@@ -377,12 +377,38 @@ services:
       start_period: 60s
       timeout: 10s
     restart: on-failure:3 # nedojde k restartu pokud je kontejner "unhealthy", maximalne 3 pokusy
-    ports:
-      - 33013:8000
+    # ports:
+    #   - 33013:8000
     volumes:
       - <<: *system-data-volume
     depends_on:
       - postgres_gql
+
+  gql_admissions:
+    image: hrbolek/gql_admissions
+    environment:
+      # link na db mimo stack
+      # - POSTGRES_HOST=host.docker.internal:5432
+      - POSTGRES_HOST=postgres_gql:5432
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=example
+      - POSTGRES_DB=data
+      - GQLUG_ENDPOINT_URL=http://gql_ug:8000/gql
+      - DEMO=False
+      - DEMODATA=True
+    healthcheck:
+      # definice, umoznujici provest test, zda je kontejner v poradku
+      test: "curl -f -H 'Content-Type: application/json' -X POST -d '{\"query\":\"query{__schema{types{name}}}\"}' http://localhost:8000/gql || exit 1"
+      interval: 60s
+      retries: 3
+      start_period: 60s
+      timeout: 10s
+    restart: on-failure:3 # nedojde k restartu pokud je kontejner "unhealthy", maximalne 3 pokusy
+    volumes:
+      - <<: *system-data-volume
+    depends_on:
+      - postgres_gql
+
 
   postgres_gql:
     image: postgres
