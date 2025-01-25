@@ -50,7 +50,7 @@ jobs:
 
             if [ -f "cloned_repos/$repo/Dockerfile" ]; then
               # Sanitize repository name to ensure valid Docker image name
-              sanitized_repo_name=$(echo "$repo" | tr -cd 'a-z0-9_.-')
+              sanitized_repo_name=$(echo "$repo" | sed 's/^_//;s/[^a-z0-9_.-]//g')
 
               # Copy systemdata.json into the cloned repository
               echo "Copying $include_file to $repo"
