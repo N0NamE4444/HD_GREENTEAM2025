@@ -49,11 +49,14 @@ jobs:
             git clone --depth 1 https://github.com/${DOCKER_USERNAME}/$repo.git cloned_repos/$repo
 
             if [ -f "cloned_repos/$repo/Dockerfile" ]; then
+              # Sanitize repository name to ensure valid Docker image name
+              sanitized_repo_name=$(echo "$repo" | tr -cd 'a-z0-9_.-')
+
               # Copy systemdata.json into the cloned repository
               echo "Copying $include_file to $repo"
               cp "$include_file" cloned_repos/$repo/
 
-              image_name="${DOCKER_USERNAME}/$repo"
+              image_name="${DOCKER_USERNAME}/${sanitized_repo_name}"
               version="${{ github.event.inputs.version }}"
               additional_tag="${{ github.event.inputs.additional_tag }}"
 
