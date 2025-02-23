@@ -8,9 +8,9 @@ x-services-volume:
 
 services:
   frontend:
-    image: hrbolek/frontend:0.8.7
+    image: hrbolek/frontend:0.9.0
     environment:
-      - DEMO=False
+      - DEMO=True
       - DEMODATA=True
       # link na db mimo stack
       # - POSTGRES_HOST=host.docker.internal:5432
@@ -20,6 +20,9 @@ services:
       - POSTGRES_DB=data
       - GQL_PROXY=http://apollo:3000/api/gql/
       - SALT=fe1c71b2-74c0-41e5-978f-eecbffac7418
+      - ADMIN_DEFAULT_EMAIL=john.newbie@world.com
+      - ADMIN_DEFAULT_PASSWORD=john.newbie@world.com
+
     healthcheck:
       # definice, umoznujici provest test, zda je kontejner v poradku (vsimnete si portu)
       test: "curl -f -X GET http://localhost:8000/ || exit 1"
