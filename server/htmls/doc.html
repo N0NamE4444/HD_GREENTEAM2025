@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>GraphQL Schema Documentation</title>
+  <!-- Load markdown-it -->
+  <script src="https://cdn.jsdelivr.net/npm/markdown-it/dist/markdown-it.min.js"></script>
+  <!-- Load markdown-it-anchor -->
+  <script src="https://cdn.jsdelivr.net/npm/markdown-it-anchor@9.2.0/dist/markdownItAnchor.umd.js"></script>
+  <style>
+    body {
+      font-family: Calibri, Candara, Segoe, "Segoe UI", Optima, Arial, sans-serif;
+      padding: 20px;
+    }
+    h4 {
+      background-color: aliceblue;
+      padding: 10px;
+      border: 1px solid #a3d9a5;
+      border-radius: 4px;
+      overflow-x: auto;
+    }
+    .h4-section {
+      background-color: #f2fbff;
+      border: 1px solid #a3d9a5;
+      padding: 10px;
+      border-radius: 4px;
+      margin-top: 10px;
+    }
+    #content {
+      border: 1px solid #ccc;
+      padding: 10px;
+      margin-top: 20px;
+    }
+    .copy-btn {
+      position: absolute;
+      top: 5px;
+      right: 5px;
+      padding: 4px 8px;
+      font-size: 12px;
+      background-color: #007BFF;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      opacity: 0.85;
+      transition: opacity 0.2s ease-in-out, background-color 0.2s ease-in-out;
+    }
+    .copy-btn:hover {
+      opacity: 1;
+      background-color: #0056b3;
+    }
+    pre {
+      position: relative;
+    }
+    code.language-graphql {
+      display: block;
+      background-color: #e0fbe0;
+      border: 1px solid #a3d9a5;
+      padding: 10px;
+      border-radius: 4px;
+      overflow-x: auto;
+      font-family: monospace;
+      margin-left: 10%;
+    }
+  </style>
+</head>
+<body>
+  <div id="content">Loading markdown...</div>
+  <script>
+    // Format a type by unwrapping NON_NULL/LIST etc.
+    function formatType(typeRef) {
+      if (!typeRef) return "";
+      const kind = typeRef.kind;
+      if (kind === "NON_NULL") {
+        return formatType(typeRef.ofType) + "!";
+      } else if (kind === "LIST") {
+        return "[" + formatType(typeRef.ofType) + "]";
+      } else {
+        const typeName = typeRef.name || "";
+        if (typeName) {
+          const builtInScalars = new Set(["String", "Int", "Float", "Boolean", "ID"]);
+          if (builtInScalars.has(typeName)) {
+            return typeName;
+          }
+          const anchor = typeName.toLowerCase();
+          return `[${typeName}](#${anchor})`;
+        }
+        return "";
+      }
+    }
+
+    // Generate markdown for a field.
+    function markdownForField(field) {
+      let s = `- **${field.name}**: ${formatType(field.type)}`;
+      if (field.description) {
+        s += ` – ${field.description}`;
+      }
+      if (field.args && field.args.length > 0) {
+        s += "\n  - **Arguments:**";
+        field.args.forEach(arg => {
+          s += `\n    - **${arg.name}**: ${formatType(arg.type)}`;
+          if (arg.description) {
+            s += ` – ${arg.description}`;
+          }
+        });
+      }
+      return s;
+    }
+
+    function markdownForInputField(field) {
+      let s = `- **${field.name}**: ${formatType(field.type)}`;
+      if (field.description) {
+        s += ` – ${field.description}`;
+      }
+      return s;
+    }
+
+    function markdownForObjectType(typeObj) {
+      let s = `#### ${typeObj.name}\n\n`;
+      if (typeObj.description) s += `${typeObj.description}\n\n`;
+      if (typeObj.fields) {
+        s += "Fields:\n";
+        typeObj.fields.forEach(field => {
+          s += markdownForField(field) + "\n";
+        });
+        s += "\n";
+      }
+      return s;
+    }
+    
+    function markdownForInputObjectType(typeObj) {
+      let s = `#### ${typeObj.name}\n\n`;
+      if (typeObj.description) s += `${typeObj.description}\n\n`;
+      if (typeObj.inputFields) {
+        s += "Input Fields:\n";
+        typeObj.inputFields.forEach(field => {
+          s += markdownForInputField(field) + "\n";
+        });
+        s += "\n";
+      }
+      return s;
+    }
+    
+    function markdownForScalarType(typeObj) {
+      let s = `#### ${typeObj.name}\n\n`;
+      if (typeObj.description) s += `${typeObj.description}\n\n`;
+      return s;
+    }
+
+    // Unwrap nested types to get the named type.
+    function getNamedType(typeRef) {
+      while (typeRef && typeRef.ofType) {
+        typeRef = typeRef.ofType;
+      }
+      return typeRef;
+    }
+
+    function variableTypeString(typeRef) {
+      if (!typeRef) return "";
+      const kind = typeRef.kind;
+      if (kind === "NON_NULL") {
+        return variableTypeString(typeRef.ofType) + "!";
+      } else if (kind === "LIST") {
+        return "[" + variableTypeString(typeRef.ofType) + "]";
+      } else {
+        return typeRef.name || "";
+      }
+    }
+
+    function generateVariableDefinitions(args, typesByName) {
+      let varDefs = [];
+      args.forEach(arg => {
+        if (arg.name === "where") {
+          varDefs.push(`$${arg.name}: ${variableTypeString(arg.type)}`);
+        } else {
+          let named = getNamedType(arg.type);
+          if (named.kind === "INPUT_OBJECT") {
+            let inputDef = typesByName[named.name];
+            if (inputDef && inputDef.inputFields) {
+              inputDef.inputFields.forEach(field => {
+                varDefs.push(`$${arg.name}_${field.name}: ${variableTypeString(field.type)}`);
+              });
+            } else {
+              varDefs.push(`$${arg.name}: ${variableTypeString(arg.type)}`);
+            }
+          } else {
+            varDefs.push(`$${arg.name}: ${variableTypeString(arg.type)}`);
+          }
+        }
+      });
+      return varDefs;
+    }
+
+    function generateFieldArguments(args, typesByName) {
+      let parts = [];
+      args.forEach(arg => {
+        if (arg.name === "where") {
+          parts.push(`${arg.name}: $${arg.name}`);
+        } else {
+          let named = getNamedType(arg.type);
+          if (named.kind === "INPUT_OBJECT") {
+            let inputDef = typesByName[named.name];
+            if (inputDef && inputDef.inputFields) {
+              let fields = [];
+              inputDef.inputFields.forEach(field => {
+                fields.push(`${field.name}: $${arg.name}_${field.name}`);
+              });
+              let objStr = "{" + fields.join(", ") + "}";
+              parts.push(`${arg.name}: ${objStr}`);
+            } else {
+              parts.push(`${arg.name}: $${arg.name}`);
+            }
+          } else {
+            parts.push(`${arg.name}: $${arg.name}`);
+          }
+        }
+      });
+      return parts.length > 0 ? "(" + parts.join(", ") + ")" : "";
+    }
+
+    function getFragmentName(typeName) {
+      if (typeName.endsWith("GQLModelUpdateError")) {
+        return "Error";
+      } else if (typeName.endsWith("GQLModel")) {
+        return typeName.slice(0, -"GQLModel".length);
+      } else {
+        return typeName;
+      }
+    }
+
+    // Helper: recursively check if a type (or its nested ofType) is NON_NULL.
+    function isMandatory(typeRef) {
+      if (!typeRef) return false;
+      if (typeRef.kind === "NON_NULL") return true;
+      return typeRef.ofType ? isMandatory(typeRef.ofType) : false;
+    }
+
+    // Returns true if any argument of the field is mandatory.
+    function hasMandatoryArgs(field) {
+      return field.args && field.args.some(arg => isMandatory(arg.type));
+    }
+
+    // Updated fragment generator: for fields within a fragment,
+    // if the field's fragment would be the same as the current fragment, output just "field { id }".
+    function generateSelectionSetWithFragments(typeRef, typesByName, fragments, depth = 0, maxDepth = 2, indentLevel = 1, indentStr = "  ") {
+      const base = getNamedType(typeRef);
+      if (base.kind === "UNION") {
+        let possibleTypes = base.possibleTypes;
+        if (!possibleTypes) {
+          const unionDef = typesByName[base.name];
+          possibleTypes = unionDef ? (unionDef.possibleTypes || []) : [];
+        }
+        let unionLines = [];
+        possibleTypes.forEach(possible => {
+          const possibleName = possible.name;
+          if (!fragments[possibleName]) {
+            generateSelectionSetWithFragments(possible, typesByName, fragments, depth + 1, maxDepth, indentLevel + 1, indentStr);
+          }
+          const inlineFragment = `... on ${possibleName} { ...${getFragmentName(possibleName)} }`;
+          unionLines.push(indentStr.repeat(indentLevel) + inlineFragment);
+        });
+        if (unionLines.length > 0) {
+          const unionBlock = "{\n" + unionLines.join("\n") + "\n" + indentStr.repeat(indentLevel - 1) + "}";
+          return unionBlock;
+        } else {
+          return "";
+        }
+      } else if (base.kind !== "OBJECT") {
+        return "";
+      }
+      if (depth >= maxDepth) {
+        return "{ __typename, id }";
+      }
+      const typeName = base.name;
+      if (!fragments[typeName]) {
+        const typeDef = typesByName[typeName];
+        let fragmentBody = "";
+        if (!typeDef || !typeDef.fields) {
+          fragmentBody = "{ __typename, id }";
+        } else {
+          let fragmentLines = [];
+          // Always include __typename first.
+          fragmentLines.push(indentStr.repeat(indentLevel) + "__typename");
+          typeDef.fields.forEach(f => {
+            let line = indentStr.repeat(indentLevel);
+            // Check if field has arguments and mandatory ones should be commented.
+            if (f.args && hasMandatoryArgs(f)) {
+              line += "# " + f.name;
+            } else {
+              const fNamed = getNamedType(f.type);
+              const fragName = getFragmentName(fNamed.name || "");
+              const currentFrag = getFragmentName(typeName);
+              // If the field's fragment would be the same as the current fragment, output field { id }.
+              if (["OBJECT", "UNION"].includes(fNamed.kind)) {
+                if (fragName === currentFrag) {
+                  line += `${f.name} { id }`;
+                } else if (depth + 1 < maxDepth) {
+                  const subSelection = generateSelectionSetWithFragments(f.type, typesByName, fragments, depth + 1, maxDepth, indentLevel + 1, indentStr);
+                  line += `${f.name} ${subSelection}`;
+                } else {
+                  line += `${f.name} { id }`;
+                }
+              } else {
+                line += f.name;
+              }
+            }
+            fragmentLines.push(line);
+          });
+          fragmentBody = "{\n" + fragmentLines.join("\n") + "\n" + indentStr.repeat(indentLevel - 1) + "}";
+        }
+        const fragmentDef = `fragment ${getFragmentName(typeName)} on ${typeName} ${fragmentBody}`;
+        fragments[typeName] = fragmentDef;
+      }
+      return "{\n" + indentStr + `...${getFragmentName(typeName)}\n}`;
+    }
+
+    // Generate Query/Mutation example usage.
+    // Top-level examples use the field name in the header.
+    function generateQueryExample(field, typesByName, operationType = "query", maxDepth = 2) {
+      if (operationType === "mutation") {
+        maxDepth = 3;
+      }
+      const args = field.args || [];
+      const varDefs = generateVariableDefinitions(args, typesByName);
+      let varDefsStr = "";
+      if (varDefs.length > 0) {
+        varDefsStr = "(" + varDefs.join(", ") + ")";
+      }
+      const fieldArgs = generateFieldArguments(args, typesByName);
+      let fragments = {};
+      let selectionSet = "";
+      const base = getNamedType(field.type);
+      if (["OBJECT", "UNION"].includes(base.kind)) {
+        selectionSet = generateSelectionSetWithFragments(field.type, typesByName, fragments, 0, maxDepth, 1, "  ");
+        if (!selectionSet.trim().startsWith("{")) {
+          selectionSet = "{\n    " + selectionSet.trim() + "\n  }";
+        }
+      }
+      if (operationType === "mutation" && !selectionSet) {
+        selectionSet = "{ __typename, id }";
+      }
+      let lines = [];
+      lines.push(`${operationType} ${field.name}${varDefsStr} {`);
+      lines.push(`  ${field.name}${fieldArgs} ${selectionSet}`);
+      lines.push("}");
+      let query = lines.join("\n");
+      if (Object.keys(fragments).length > 0) {
+        const fragmentsText = Object.keys(fragments)
+          .map(frag => fragments[frag])
+          .join("\n\n");
+        query += "\n\n" + fragmentsText;
+      }
+      return query;
+    }
+
+    function generateMarkdownFromSchema2(introspection) {
+      const schemaData = introspection.__schema;
+      const types = schemaData.types;
+      const typesByName = {};
+      for (const t of types) {
+        if (t.name.startsWith("__")) continue;
+        typesByName[t.name] = t;
+      }
+      
+      const queryTypeName = schemaData.queryType ? schemaData.queryType.name : null;
+      const mutationTypeName = schemaData.mutationType ? schemaData.mutationType.name : null;
+      
+      let markdown = "# GraphQL Schema Documentation\n\n";
+      markdown += "## Query and Mutation\n\n";
+      
+      if (typesByName[queryTypeName]) {
+        let queryType = typesByName[queryTypeName];
+        markdown += `### Query: ${queryType.name}\n\n`;
+        if (queryType.description) {
+          markdown += `${queryType.description}\n\n`;
+        }
+        if (queryType.fields) {
+          markdown += "#### Fields\n\n";
+          queryType.fields.forEach(field => {
+            markdown += markdownForField(field) + "\n\n";
+            const example = generateQueryExample(field, typesByName, "query");
+            markdown += "Example usage:\n\n```graphql\n" + example + "\n```\n\n";
+          });
+        }
+      }
+      
+      if (typesByName[mutationTypeName]) {
+        let mutationType = typesByName[mutationTypeName];
+        markdown += `### Mutation: ${mutationType.name}\n\n`;
+        if (mutationType.description) {
+          markdown += `${mutationType.description}\n\n`;
+        }
+        if (mutationType.fields) {
+          markdown += "#### Fields\n\n";
+          mutationType.fields.forEach(field => {
+            markdown += markdownForField(field) + "\n\n";
+            const example = generateQueryExample(field, typesByName, "mutation");
+            markdown += "Example usage:\n\n```graphql\n" + example + "\n```\n\n";
+          });
+        }
+      }
+      
+      markdown += "## Scalars\n\n";
+      Object.values(typesByName).forEach(t => {
+        if (t.kind === "SCALAR") {
+          markdown += markdownForScalarType(t);
+        }
+      });
+      
+      markdown += "## Input Types\n\n";
+      Object.values(typesByName).forEach(t => {
+        if (t.kind === "INPUT_OBJECT") {
+          markdown += markdownForInputObjectType(t);
+        }
+      });
+      
+      // Regular object types (non Query/Mutation) are documented without examples.
+      markdown += "## Regular Types\n\n";
+      Object.values(typesByName).forEach(t => {
+        if (t.kind === "OBJECT" && t.name !== queryTypeName && t.name !== mutationTypeName) {
+          markdown += markdownForObjectType(t);
+        }
+      });
+      
+      return markdown;
+    }
+
+    function wrapH4Sections(md) {
+      md.core.ruler.after('block', 'wrap_h4_sections', function (state) {
+        let tokens = state.tokens;
+        let newTokens = [];
+        let inSection = false;
+        for (let i = 0; i < tokens.length; i++) {
+          let token = tokens[i];
+          if (token.type === 'heading_open' && token.tag === 'h4') {
+            if (inSection) {
+              newTokens.push(new state.Token('container_close', 'div', -1));
+              inSection = false;
+            }
+            newTokens.push(token);
+            newTokens.push(tokens[i + 1]);
+            newTokens.push(tokens[i + 2]);
+            i += 2;
+            let containerOpen = new state.Token('container_open', 'div', 1);
+            containerOpen.block = true;
+            containerOpen.attrSet('class', 'h4-section');
+            newTokens.push(containerOpen);
+            inSection = true;
+          } else if (inSection && token.type === 'heading_open' && (parseInt(token.tag.slice(1)) <= 4)) {
+            newTokens.push(new state.Token('container_close', 'div', -1));
+            inSection = false;
+            newTokens.push(token);
+          } else {
+            newTokens.push(token);
+          }
+        }
+        if (inSection) {
+          newTokens.push(new state.Token('container_close', 'div', -1));
+        }
+        state.tokens = newTokens;
+      });
+    }
+
+    function addCopyButtons() {
+      document.querySelectorAll('pre code').forEach((codeBlock) => {
+        var button = document.createElement('button');
+        button.innerText = 'Copy';
+        button.classList.add('copy-btn');
+        codeBlock.parentElement.style.position = 'relative';
+        button.addEventListener('click', () => {
+          navigator.clipboard.writeText(codeBlock.innerText).then(() => {
+            button.innerText = 'Copied!';
+            setTimeout(() => {
+              button.innerText = 'Copy';
+            }, 2000);
+          }).catch(err => {
+            console.error('Failed to copy!', err);
+          });
+        });
+        codeBlock.parentElement.appendChild(button);
+      });
+    }
+
+    const urlParams = new URLSearchParams(window.location.search);
+    const markdownUri = urlParams.get('md') || '/md';
+    
+    const introspectionQuery = `
+query IntrospectionQuery {
+  __schema {
+    queryType { name }
+    mutationType { name }
+    types {
+      name
+      description
+      kind
+      fields {
+        name
+        description
+        args {
+          name
+          description
+          type {
+            kind
+            name
+            ofType {
+              kind
+              name
+              ofType {
+                kind
+                name
+                ofType {
+                  kind
+                  name
+                }
+              }
+            }
+          }
+        }
+        type {
+          kind
+          name
+          ofType {
+            kind
+            name
+            ofType {
+              kind
+              name
+              ofType {
+                kind
+                name
+              }
+            }
+          }
+        }
+      }
+      inputFields {
+        name
+        description
+        type {
+          kind
+          name
+          ofType {
+            kind
+            name
+            ofType {
+              kind
+              name
+            }
+          }
+        }
+      }
+      possibleTypes {
+        name
+        kind
+      }
+    }
+  }
+}
+`;
+    
+    fetch('/api/gql', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: introspectionQuery })
+    })
+    .then(response => {
+      if (!response.ok) {
+        throw new Error('Network response was not ok: ' + response.statusText);
+      }
+      return response.json();
+    })
+    .then(data => {
+      const markdownText = generateMarkdownFromSchema2(data.data);
+      document.getElementById('content').innerHTML = md.render(markdownText);
+      addCopyButtons();
+    })
+    .catch(error => {
+      document.getElementById('content').innerHTML = 'Error loading markdown: ' + error;
+    });
+    
+    var md = window.markdownit().use(window.markdownItAnchor, {
+      slugify: function(s) {
+        return s.trim().toLowerCase().replace(/\s+/g, '-');
+      }
+    }).use(wrapH4Sections, {});
+  </script>
+</body>
+</html>

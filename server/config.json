@@ -77,6 +77,12 @@
         "authors": "Ivan Goncharov & many others",
         "markdownfile": "voyager.md"
     },
+    "doc": { 
+        "file": "doc.html",
+        "title": "Dokumentace",
+        "authors": "Hrbolek",
+        "markdownfile": "doc.md"
+    },
     "importer": { 
         "file": "importer.html",
         "title": "Importer",
