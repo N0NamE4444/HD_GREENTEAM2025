@@ -3,54 +3,32 @@
 <head>
   <meta charset="UTF-8">
   <title>GraphQL Schema Documentation</title>
-  <!-- Load markdown-it -->
+  <!-- Load Bootstrap CSS from CDN -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <!-- Load markdown-it and markdown-it-anchor -->
   <script src="https://cdn.jsdelivr.net/npm/markdown-it/dist/markdown-it.min.js"></script>
-  <!-- Load markdown-it-anchor -->
   <script src="https://cdn.jsdelivr.net/npm/markdown-it-anchor@9.2.0/dist/markdownItAnchor.umd.js"></script>
   <style>
     body {
       font-family: Calibri, Candara, Segoe, "Segoe UI", Optima, Arial, sans-serif;
       padding: 20px;
     }
-    h4 {
+    /* Content styling */
+    #content {
+      border: 1px solid #ccc;
+      padding: 10px;
+      height: 95vh;
+      overflow-y: auto;
+    }
+    pre {
+      position: relative;
+    }
+    h5 {
       background-color: aliceblue;
       padding: 10px;
       border: 1px solid #a3d9a5;
       border-radius: 4px;
       overflow-x: auto;
-    }
-    .h4-section {
-      background-color: #f2fbff;
-      border: 1px solid #a3d9a5;
-      padding: 10px;
-      border-radius: 4px;
-      margin-top: 10px;
-    }
-    #content {
-      border: 1px solid #ccc;
-      padding: 10px;
-      margin-top: 20px;
-    }
-    .copy-btn {
-      position: absolute;
-      top: 5px;
-      right: 5px;
-      padding: 4px 8px;
-      font-size: 12px;
-      background-color: #007BFF;
-      color: #fff;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-      opacity: 0.85;
-      transition: opacity 0.2s ease-in-out, background-color 0.2s ease-in-out;
-    }
-    .copy-btn:hover {
-      opacity: 1;
-      background-color: #0056b3;
-    }
-    pre {
-      position: relative;
     }
     code.language-graphql {
       display: block;
@@ -60,36 +38,114 @@
       border-radius: 4px;
       overflow-x: auto;
       font-family: monospace;
-      margin-left: 10%;
+    }
+    /* Sidebar styling */
+    #sidebar {
+      border-right: 1px solid #ccc;
+      padding-right: 10px;
+      max-height: 95vh;
+      overflow-y: auto;
+    }
+    #sidebar a {
+      text-decoration: none;
+      display: block;
+      padding: 4px 8px;
+      color: #007BFF;
+    }
+    #sidebar a.active {
+      background-color: #007BFF;
+      color: #fff;
+      border-radius: 4px;
+    }
+    /* Button group styles for copy/test */
+    .btn-group-custom {
+      position: absolute;
+      top: 5px;
+      right: 5px;
+    }
+    .btn-group-custom button {
+      font-size: 12px;
+      padding: 4px 8px;
+      opacity: 0.85;
+      transition: opacity 0.2s ease-in-out, background-color 0.2s ease-in-out;
+    }
+    .btn-group-custom button:hover {
+      opacity: 1;
     }
   </style>
 </head>
-<body>
-  <div id="content">Loading markdown...</div>
+<body data-bs-spy="scroll" data-bs-target="#sidebar" data-bs-offset="20">
+  <div class="container-fluid">
+    <div class="row">
+      <!-- Sidebar column -->
+      <nav id="sidebar" class="col-md-3 mb-3">
+        <h5>Navigation</h5>
+        <div id="nav-links"></div>
+      </nav>
+      <!-- Content column -->
+      <div class="col-md-9">
+        <div id="content">Loading markdown...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bootstrap Modal for testing queries -->
+  <div class="modal fade" id="testModal" tabindex="-1" aria-labelledby="testModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="testModalLabel">Test GraphQL Query</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <form id="testForm">
+            <div class="mb-3">
+              <label for="queryText" class="form-label">Query</label>
+              <textarea class="form-control" id="queryText" rows="8" readonly></textarea>
+            </div>
+            <div class="mb-3">
+              <label for="variablesText" class="form-label">Variables (JSON)</label>
+              <textarea class="form-control" id="variablesText" rows="4" placeholder='{"var1": "value1", ...}'></textarea>
+            </div>
+          </form>
+          <div id="testResponse" class="mt-3" style="white-space: pre-wrap; font-family: monospace;"></div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+          <button type="button" id="sendTestBtn" class="btn btn-primary">Send</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Load Bootstrap JS (and its dependency Popper) -->
+  <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.11.5/dist/umd/popper.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.2.0/dist/js/bootstrap.min.js"></script>
   <script>
-    // Format a type by unwrapping NON_NULL/LIST etc.
-    function formatType(typeRef) {
-      if (!typeRef) return "";
-      const kind = typeRef.kind;
-      if (kind === "NON_NULL") {
-        return formatType(typeRef.ofType) + "!";
-      } else if (kind === "LIST") {
-        return "[" + formatType(typeRef.ofType) + "]";
-      } else {
-        const typeName = typeRef.name || "";
-        if (typeName) {
-          const builtInScalars = new Set(["String", "Int", "Float", "Boolean", "ID"]);
-          if (builtInScalars.has(typeName)) {
-            return typeName;
-          }
-          const anchor = typeName.toLowerCase();
-          return `[${typeName}](#${anchor})`;
-        }
-        return "";
+    
+    const fetchURL = "/api/gql";
+
+    // Custom slugify that ensures non‑empty id
+    let headingIndex = 0;
+    function customSlugify(s) {
+      let slug = s.trim().toLowerCase().replace(/\s+/g, '-');
+      if (!slug) {
+        slug = 'heading-' + (headingIndex++);
       }
+      return slug;
     }
 
-    // Generate markdown for a field.
+    // --- Markdown Generation Functions (same as before) ---
+    function formatType(typeRef) {
+      if (!typeRef) return "";
+      if (typeRef.kind === "NON_NULL") {
+        return formatType(typeRef.ofType) + "!";
+      } else if (typeRef.kind === "LIST") {
+        return "[" + formatType(typeRef.ofType) + "]";
+      } else {
+        return typeRef.name || "";
+      }
+    }
     function markdownForField(field) {
       let s = `- **${field.name}**: ${formatType(field.type)}`;
       if (field.description) {
@@ -106,7 +162,6 @@
       }
       return s;
     }
-
     function markdownForInputField(field) {
       let s = `- **${field.name}**: ${formatType(field.type)}`;
       if (field.description) {
@@ -114,7 +169,6 @@
       }
       return s;
     }
-
     function markdownForObjectType(typeObj) {
       let s = `#### ${typeObj.name}\n\n`;
       if (typeObj.description) s += `${typeObj.description}\n\n`;
@@ -127,7 +181,6 @@
       }
       return s;
     }
-    
     function markdownForInputObjectType(typeObj) {
       let s = `#### ${typeObj.name}\n\n`;
       if (typeObj.description) s += `${typeObj.description}\n\n`;
@@ -140,21 +193,17 @@
       }
       return s;
     }
-    
     function markdownForScalarType(typeObj) {
       let s = `#### ${typeObj.name}\n\n`;
       if (typeObj.description) s += `${typeObj.description}\n\n`;
       return s;
     }
-
-    // Unwrap nested types to get the named type.
     function getNamedType(typeRef) {
       while (typeRef && typeRef.ofType) {
         typeRef = typeRef.ofType;
       }
       return typeRef;
     }
-
     function variableTypeString(typeRef) {
       if (!typeRef) return "";
       const kind = typeRef.kind;
@@ -166,7 +215,6 @@
         return typeRef.name || "";
       }
     }
-
     function generateVariableDefinitions(args, typesByName) {
       let varDefs = [];
       args.forEach(arg => {
@@ -190,7 +238,6 @@
       });
       return varDefs;
     }
-
     function generateFieldArguments(args, typesByName) {
       let parts = [];
       args.forEach(arg => {
@@ -217,7 +264,6 @@
       });
       return parts.length > 0 ? "(" + parts.join(", ") + ")" : "";
     }
-
     function getFragmentName(typeName) {
       if (typeName.endsWith("GQLModelUpdateError")) {
         return "Error";
@@ -227,21 +273,14 @@
         return typeName;
       }
     }
-
-    // Helper: recursively check if a type (or its nested ofType) is NON_NULL.
     function isMandatory(typeRef) {
       if (!typeRef) return false;
       if (typeRef.kind === "NON_NULL") return true;
       return typeRef.ofType ? isMandatory(typeRef.ofType) : false;
     }
-
-    // Returns true if any argument of the field is mandatory.
     function hasMandatoryArgs(field) {
       return field.args && field.args.some(arg => isMandatory(arg.type));
     }
-
-    // Updated fragment generator: for fields within a fragment,
-    // if the field's fragment would be the same as the current fragment, output just "field { id }".
     function generateSelectionSetWithFragments(typeRef, typesByName, fragments, depth = 0, maxDepth = 2, indentLevel = 1, indentStr = "  ") {
       const base = getNamedType(typeRef);
       if (base.kind === "UNION") {
@@ -279,18 +318,15 @@
           fragmentBody = "{ __typename, id }";
         } else {
           let fragmentLines = [];
-          // Always include __typename first.
           fragmentLines.push(indentStr.repeat(indentLevel) + "__typename");
           typeDef.fields.forEach(f => {
             let line = indentStr.repeat(indentLevel);
-            // Check if field has arguments and mandatory ones should be commented.
             if (f.args && hasMandatoryArgs(f)) {
               line += "# " + f.name;
             } else {
               const fNamed = getNamedType(f.type);
               const fragName = getFragmentName(fNamed.name || "");
               const currentFrag = getFragmentName(typeName);
-              // If the field's fragment would be the same as the current fragment, output field { id }.
               if (["OBJECT", "UNION"].includes(fNamed.kind)) {
                 if (fragName === currentFrag) {
                   line += `${f.name} { id }`;
@@ -313,9 +349,6 @@
       }
       return "{\n" + indentStr + `...${getFragmentName(typeName)}\n}`;
     }
-
-    // Generate Query/Mutation example usage.
-    // Top-level examples use the field name in the header.
     function generateQueryExample(field, typesByName, operationType = "query", maxDepth = 2) {
       if (operationType === "mutation") {
         maxDepth = 3;
@@ -352,8 +385,7 @@
       }
       return query;
     }
-
-    function generateMarkdownFromSchema2(introspection) {
+    function generateMarkdownFromSchema(introspection) {
       const schemaData = introspection.__schema;
       const types = schemaData.types;
       const typesByName = {};
@@ -361,13 +393,10 @@
         if (t.name.startsWith("__")) continue;
         typesByName[t.name] = t;
       }
-      
       const queryTypeName = schemaData.queryType ? schemaData.queryType.name : null;
       const mutationTypeName = schemaData.mutationType ? schemaData.mutationType.name : null;
-      
       let markdown = "# GraphQL Schema Documentation\n\n";
       markdown += "## Query and Mutation\n\n";
-      
       if (typesByName[queryTypeName]) {
         let queryType = typesByName[queryTypeName];
         markdown += `### Query: ${queryType.name}\n\n`;
@@ -377,13 +406,13 @@
         if (queryType.fields) {
           markdown += "#### Fields\n\n";
           queryType.fields.forEach(field => {
+            markdown += `##### query.${field.name}\n\n`;
             markdown += markdownForField(field) + "\n\n";
             const example = generateQueryExample(field, typesByName, "query");
             markdown += "Example usage:\n\n```graphql\n" + example + "\n```\n\n";
           });
         }
       }
-      
       if (typesByName[mutationTypeName]) {
         let mutationType = typesByName[mutationTypeName];
         markdown += `### Mutation: ${mutationType.name}\n\n`;
@@ -393,97 +422,134 @@
         if (mutationType.fields) {
           markdown += "#### Fields\n\n";
           mutationType.fields.forEach(field => {
+            markdown += `##### mutation.${field.name}\n\n`;
             markdown += markdownForField(field) + "\n\n";
             const example = generateQueryExample(field, typesByName, "mutation");
             markdown += "Example usage:\n\n```graphql\n" + example + "\n```\n\n";
           });
         }
       }
-      
       markdown += "## Scalars\n\n";
       Object.values(typesByName).forEach(t => {
         if (t.kind === "SCALAR") {
           markdown += markdownForScalarType(t);
         }
       });
-      
       markdown += "## Input Types\n\n";
       Object.values(typesByName).forEach(t => {
         if (t.kind === "INPUT_OBJECT") {
           markdown += markdownForInputObjectType(t);
         }
       });
-      
-      // Regular object types (non Query/Mutation) are documented without examples.
       markdown += "## Regular Types\n\n";
       Object.values(typesByName).forEach(t => {
         if (t.kind === "OBJECT" && t.name !== queryTypeName && t.name !== mutationTypeName) {
           markdown += markdownForObjectType(t);
         }
       });
-      
       return markdown;
     }
-
-    function wrapH4Sections(md) {
-      md.core.ruler.after('block', 'wrap_h4_sections', function (state) {
-        let tokens = state.tokens;
-        let newTokens = [];
-        let inSection = false;
-        for (let i = 0; i < tokens.length; i++) {
-          let token = tokens[i];
-          if (token.type === 'heading_open' && token.tag === 'h4') {
-            if (inSection) {
-              newTokens.push(new state.Token('container_close', 'div', -1));
-              inSection = false;
-            }
-            newTokens.push(token);
-            newTokens.push(tokens[i + 1]);
-            newTokens.push(tokens[i + 2]);
-            i += 2;
-            let containerOpen = new state.Token('container_open', 'div', 1);
-            containerOpen.block = true;
-            containerOpen.attrSet('class', 'h4-section');
-            newTokens.push(containerOpen);
-            inSection = true;
-          } else if (inSection && token.type === 'heading_open' && (parseInt(token.tag.slice(1)) <= 4)) {
-            newTokens.push(new state.Token('container_close', 'div', -1));
-            inSection = false;
-            newTokens.push(token);
-          } else {
-            newTokens.push(token);
-          }
-        }
-        if (inSection) {
-          newTokens.push(new state.Token('container_close', 'div', -1));
-        }
-        state.tokens = newTokens;
+    // --- Sidebar Generation ---
+    function generateSidebar() {
+      const navDiv = document.getElementById("nav-links");
+      navDiv.innerHTML = "";
+      const headings = document.querySelectorAll("#content h5[id]");
+      headings.forEach(h => {
+        const link = document.createElement("a");
+        link.href = "#" + h.id;
+        link.textContent = h.textContent;
+        navDiv.appendChild(link);
       });
     }
+// --- Button Group: Add Copy, Test, and Store buttons to pre>code blocks ---
+function addButtonGroups() {
+  document.querySelectorAll('pre code').forEach((codeBlock) => {
+    const btnGroup = document.createElement('div');
+    btnGroup.classList.add('btn-group', 'btn-group-sm', 'btn-group-custom');
 
-    function addCopyButtons() {
-      document.querySelectorAll('pre code').forEach((codeBlock) => {
-        var button = document.createElement('button');
-        button.innerText = 'Copy';
-        button.classList.add('copy-btn');
-        codeBlock.parentElement.style.position = 'relative';
-        button.addEventListener('click', () => {
-          navigator.clipboard.writeText(codeBlock.innerText).then(() => {
-            button.innerText = 'Copied!';
-            setTimeout(() => {
-              button.innerText = 'Copy';
-            }, 2000);
-          }).catch(err => {
-            console.error('Failed to copy!', err);
-          });
+    // Copy Button
+    const copyBtn = document.createElement('button');
+    copyBtn.type = "button";
+    copyBtn.classList.add('btn', 'btn-primary');
+    copyBtn.innerText = 'Copy';
+    copyBtn.addEventListener('click', () => {
+      navigator.clipboard.writeText(codeBlock.innerText).then(() => {
+        copyBtn.innerText = 'Copied!';
+        setTimeout(() => copyBtn.innerText = 'Copy', 2000);
+      }).catch(err => console.error('Failed to copy!', err));
+    });
+    btnGroup.appendChild(copyBtn);
+
+    // Test Button
+    const testBtn = document.createElement('button');
+    testBtn.type = "button";
+    testBtn.classList.add('btn', 'btn-secondary');
+    testBtn.innerText = 'Test';
+    testBtn.addEventListener('click', () => {
+      // Open modal and populate it with the query from this code block.
+      const queryText = codeBlock.innerText;
+      document.getElementById("queryText").value = queryText;
+      document.getElementById("variablesText").value = "{}";
+      document.getElementById("testResponse").innerText = "";
+      const testModal = new bootstrap.Modal(document.getElementById("testModal"));
+      testModal.show();
+
+      // When Send is clicked, send POST request with the query and variables.
+      document.getElementById("sendTestBtn").onclick = () => {
+        let variables;
+        try {
+          variables = JSON.parse(document.getElementById("variablesText").value);
+        } catch (e) {
+          document.getElementById("testResponse").innerText = "Invalid JSON in variables.";
+          return;
+        }
+        fetch(fetchURL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query: queryText, variables })
+        })
+        .then(response => response.json())
+        .then(respData => {
+          document.getElementById("testResponse").innerText = JSON.stringify(respData, null, 2);
+        })
+        .catch(err => {
+          document.getElementById("testResponse").innerText = "Error: " + err;
         });
-        codeBlock.parentElement.appendChild(button);
+      };
+    });
+    btnGroup.appendChild(testBtn);
+
+    // Store Button - Save the GraphQL query to localStorage in a GraphiQL-compatible way
+    const storeBtn = document.createElement('button');
+    storeBtn.type = "button";
+    storeBtn.classList.add('btn', 'btn-info');
+    storeBtn.innerText = 'Store';
+    storeBtn.addEventListener('click', () => {
+      const queryText = codeBlock.innerText;
+      try {
+        // Save the query using the same key that GraphiQL uses.
+        localStorage.setItem('graphiql:query', queryText);
+        storeBtn.innerText = 'Stored!';
+        setTimeout(() => storeBtn.innerText = 'Store', 2000);
+      } catch (e) {
+        console.error('Error storing query: ', e);
+      }
+    });
+    btnGroup.appendChild(storeBtn);
+
+    // Append button group to the parent of the code block
+    codeBlock.parentElement.style.position = 'relative';
+    codeBlock.parentElement.appendChild(btnGroup);
+  });
+}
+
+    // --- Wrap h5 headings (h5 are handled by markdown-it-anchor) ---
+    function wrapH5Sections(md) {
+      md.core.ruler.after('block', 'wrap_h5_sections', function (state) {
+        // No extra wrapping is needed for h5 headers.
       });
     }
-
-    const urlParams = new URLSearchParams(window.location.search);
-    const markdownUri = urlParams.get('md') || '/md';
-    
+    // --- Fetch Introspection and Render Markdown ---
     const introspectionQuery = `
 query IntrospectionQuery {
   __schema {
@@ -557,32 +623,39 @@ query IntrospectionQuery {
   }
 }
 `;
-    
-    fetch('/api/gql', {
+    fetch(fetchURL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ query: introspectionQuery })
     })
     .then(response => {
-      if (!response.ok) {
-        throw new Error('Network response was not ok: ' + response.statusText);
-      }
+      if (!response.ok) throw new Error('Network error: ' + response.statusText);
       return response.json();
     })
     .then(data => {
-      const markdownText = generateMarkdownFromSchema2(data.data);
-      document.getElementById('content').innerHTML = md.render(markdownText);
-      addCopyButtons();
+      const markdownText = generateMarkdownFromSchema(data.data);
+      const md = window.markdownit({
+        html: true,
+        linkify: true,
+        typographer: true
+      }).use(window.markdownItAnchor, {
+        slugify: customSlugify,
+        level: [4, 5]
+      }).use(wrapH5Sections);
+      document.getElementById("content").innerHTML = md.render(markdownText);
+      addButtonGroups();
+      generateSidebar();
     })
-    .catch(error => {
-      document.getElementById('content').innerHTML = 'Error loading markdown: ' + error;
+    .catch(err => {
+      document.getElementById("content").innerHTML = "Error loading schema: " + err;
     });
-    
-    var md = window.markdownit().use(window.markdownItAnchor, {
-      slugify: function(s) {
-        return s.trim().toLowerCase().replace(/\s+/g, '-');
-      }
-    }).use(wrapH4Sections, {});
+    // Activate Bootstrap scrollspy.
+    window.addEventListener('load', () => {
+      new bootstrap.ScrollSpy(document.body, {
+        target: '#sidebar',
+        offset: 100
+      });
+    });
   </script>
 </body>
 </html>
