@@ -72,6 +72,27 @@
     .btn-group-custom button:hover {
       opacity: 1;
     }
+
+    @media print {
+      /* Hide the sidebar during printing */
+      #sidebar {
+        display: none;
+      }
+
+      /* Make the content area take full width and adjust styling for print */
+      #content {
+        width: 100%;
+        border: none;
+        padding: 0;
+        height: auto;
+        overflow: visible;
+      }
+
+      /* Optionally hide other elements not needed in print view */
+      .btn-group-custom {
+        display: none;
+      }
+    }    
   </style>
 </head>
 <body data-bs-spy="scroll" data-bs-target="#sidebar" data-bs-offset="20">
@@ -146,15 +167,26 @@
         return typeRef.name || "";
       }
     }
+    function typeCore(typeRef) {
+      if (!typeRef) return "";
+      if (typeRef.kind === "NON_NULL") {
+        return typeCore(typeRef.ofType);
+      } else if (typeRef.kind === "LIST") {
+        return typeCore(typeRef.ofType);
+      } else {
+        return typeRef.name || "";
+      }
+    }
     function markdownForField(field) {
-      let s = `- **${field.name}**: ${formatType(field.type)}`;
+      let s = `- **${field.name}**: [${formatType(field.type)}](#${typeCore(field.type).toLowerCase()})`;
+      // s += `# ${JSON.stringify(field.type)}\n\n`
       if (field.description) {
         s += ` – ${field.description}`;
       }
       if (field.args && field.args.length > 0) {
         s += "\n  - **Arguments:**";
         field.args.forEach(arg => {
-          s += `\n    - **${arg.name}**: ${formatType(arg.type)}`;
+          s += `\n    - **${arg.name}**: [${formatType(arg.type)}](#${typeCore(arg.type).toLowerCase()})`;
           if (arg.description) {
             s += ` – ${arg.description}`;
           }
@@ -163,9 +195,22 @@
       return s;
     }
     function markdownForInputField(field) {
-      let s = `- **${field.name}**: ${formatType(field.type)}`;
+      let s = `- **${field.name}**: [${formatType(field.type)}](#${typeCore(field.type).toLowerCase()})`;
       if (field.description) {
         s += ` – ${field.description}`;
+      }
+      return s;
+    }
+    function markdownForUnion(typeObj) {
+      let s = `#### ${typeObj.name}\n\n`;
+      
+      if (typeObj.description) s += `${typeObj.description}\n\n`;
+      if (typeObj.possibleTypes) {
+        s += "Possible types:\n\n";
+        typeObj.possibleTypes.forEach(pType => {
+          s += `- [${pType.name}](#${pType.name.toLowerCase()}) \n`;
+        });
+        s += "\n";
       }
       return s;
     }
@@ -212,6 +257,7 @@
       } else if (kind === "LIST") {
         return "[" + variableTypeString(typeRef.ofType) + "]";
       } else {
+        // return `[${typeRef.name}](#${typeRef.name.toLowerCase()})` || "";
         return typeRef.name || "";
       }
     }
@@ -226,7 +272,8 @@
             let inputDef = typesByName[named.name];
             if (inputDef && inputDef.inputFields) {
               inputDef.inputFields.forEach(field => {
-                varDefs.push(`$${arg.name}_${field.name}: ${variableTypeString(field.type)}`);
+                // varDefs.push(`$${arg.name}_${field.name}: ${variableTypeString(field.type)}`);
+                varDefs.push(`$${field.name}: ${variableTypeString(field.type)}`);
               });
             } else {
               varDefs.push(`$${arg.name}: ${variableTypeString(arg.type)}`);
@@ -250,7 +297,7 @@
             if (inputDef && inputDef.inputFields) {
               let fields = [];
               inputDef.inputFields.forEach(field => {
-                fields.push(`${field.name}: $${arg.name}_${field.name}`);
+                fields.push(`${field.name}: $${field.name}`);
               });
               let objStr = "{" + fields.join(", ") + "}";
               parts.push(`${arg.name}: ${objStr}`);
@@ -295,11 +342,23 @@
           if (!fragments[possibleName]) {
             generateSelectionSetWithFragments(possible, typesByName, fragments, depth + 1, maxDepth, indentLevel + 1, indentStr);
           }
-          const inlineFragment = `... on ${possibleName} { ...${getFragmentName(possibleName)} }`;
-          unionLines.push(indentStr.repeat(indentLevel) + inlineFragment);
+          const fragName = getFragmentName(base.name || "");
+          const currentFrag = getFragmentName(possibleName);
+
+          let inlineFragment = `... on ${possibleName} { ...${getFragmentName(possibleName)} }`;
+
+          console.log(currentFrag, fragName)
+          // console.log(base?.name, possibleName)
+          if (`${typeRef.name}` != 'null') {
+          // if (base?.name == possibleName) {
+            inlineFragment = `... on ${possibleName} { __typename id } # ${inlineFragment}`;
+          }
+          // inlineFragment = `... on ${possibleName} { __typename }`;
+
+          unionLines.push(indentStr.repeat(indentLevel + 1) + inlineFragment);
         });
         if (unionLines.length > 0) {
-          const unionBlock = "{\n" + unionLines.join("\n") + "\n" + indentStr.repeat(indentLevel - 1) + "}";
+          const unionBlock = "{\n" + unionLines.join("\n") + "\n" + indentStr.repeat(indentLevel) + "}";
           return unionBlock;
         } else {
           return "";
@@ -318,9 +377,9 @@
           fragmentBody = "{ __typename, id }";
         } else {
           let fragmentLines = [];
-          fragmentLines.push(indentStr.repeat(indentLevel) + "__typename");
+          fragmentLines.push(indentStr.repeat(indentLevel - 1) + "__typename");
           typeDef.fields.forEach(f => {
-            let line = indentStr.repeat(indentLevel);
+            let line = indentStr.repeat(indentLevel - 1);
             if (f.args && hasMandatoryArgs(f)) {
               line += "# " + f.name;
             } else {
@@ -329,12 +388,13 @@
               const currentFrag = getFragmentName(typeName);
               if (["OBJECT", "UNION"].includes(fNamed.kind)) {
                 if (fragName === currentFrag) {
-                  line += `${f.name} { id }`;
+                  line += `${f.name} { __typename }`;
                 } else if (depth + 1 < maxDepth) {
                   const subSelection = generateSelectionSetWithFragments(f.type, typesByName, fragments, depth + 1, maxDepth, indentLevel + 1, indentStr);
                   line += `${f.name} ${subSelection}`;
+                  // line += `${f.name} { __typename }`;
                 } else {
-                  line += `${f.name} { id }`;
+                  line += `${f.name} { __typename }`;
                 }
               } else {
                 line += f.name;
@@ -396,6 +456,31 @@
       const queryTypeName = schemaData.queryType ? schemaData.queryType.name : null;
       const mutationTypeName = schemaData.mutationType ? schemaData.mutationType.name : null;
       let markdown = "# GraphQL Schema Documentation\n\n";
+      markdown += "## Regular Types\n\n";
+      Object.values(typesByName).forEach(t => {
+        if (t.kind === "OBJECT" && t.name !== queryTypeName && t.name !== mutationTypeName) {
+          markdown += markdownForObjectType(t);
+        }
+      });
+      markdown += "## Unions\n\n";
+      Object.values(typesByName).forEach(t => {
+        if (t.kind === "UNION" && t.name !== queryTypeName && t.name !== mutationTypeName) {
+          markdown += markdownForUnion(t);
+        }
+      });
+      markdown += "## Input Types\n\n";
+      Object.values(typesByName).forEach(t => {
+        if (t.kind === "INPUT_OBJECT") {
+          markdown += markdownForInputObjectType(t);
+        }
+      });
+      markdown += "## Scalars\n\n";
+      Object.values(typesByName).forEach(t => {
+        if (t.kind === "SCALAR") {
+          markdown += markdownForScalarType(t);
+        }
+      });
+
       markdown += "## Query and Mutation\n\n";
       if (typesByName[queryTypeName]) {
         let queryType = typesByName[queryTypeName];
@@ -429,24 +514,6 @@
           });
         }
       }
-      markdown += "## Scalars\n\n";
-      Object.values(typesByName).forEach(t => {
-        if (t.kind === "SCALAR") {
-          markdown += markdownForScalarType(t);
-        }
-      });
-      markdown += "## Input Types\n\n";
-      Object.values(typesByName).forEach(t => {
-        if (t.kind === "INPUT_OBJECT") {
-          markdown += markdownForInputObjectType(t);
-        }
-      });
-      markdown += "## Regular Types\n\n";
-      Object.values(typesByName).forEach(t => {
-        if (t.kind === "OBJECT" && t.name !== queryTypeName && t.name !== mutationTypeName) {
-          markdown += markdownForObjectType(t);
-        }
-      });
       return markdown;
     }
     // --- Sidebar Generation ---
