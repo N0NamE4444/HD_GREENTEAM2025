@@ -19,6 +19,7 @@ on:
             - systemdata.min.json
             - systemdata.rnd.json
             - systemdata.rnd0.json
+            - systemdata.all.json
         default: systemdata.min.json
 jobs:
   build-and-push:
