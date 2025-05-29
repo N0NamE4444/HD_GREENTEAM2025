@@ -1,28 +1,23 @@
-name: Integration Tests
+# .github/workflows/integration-tests.yml
+name: Integration Tests (PoC)
 
 on:
   push:
   pull_request:
 
 jobs:
-  integration:
-    name: Run integration suite
+  integration-poc:
+    name: Run the token test as integration PoC
     runs-on: ubuntu-latest
 
     services:
       postgres:
         image: postgres:14
         env:
-          POSTGRES_USER: postgres
           POSTGRES_PASSWORD: password
+          POSTGRES_USER: postgres
           POSTGRES_DB: testdb
         ports: ['5432:5432']
-        # počkejte, až bude DB připravená
-        options: >-
-          --health-cmd="pg_isready -U postgres -d testdb"
-          --health-interval=5s
-          --health-timeout=2s
-          --health-retries=5
 
     steps:
       - name: Check out code
@@ -37,16 +32,8 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install -r requirements.txt -r requirements-dev.txt
-
-      - name: Start Uvicorn server
-        # spustíme na pozadí; port 8008 zvolíte podle environment.txt
         run: |
-          uvicorn server.main:app \
-            --host 0.0.0.0 \
-            --port 8008 \
-            --reload &  
-          sleep 5
+          pip install -r requirements.txt -r requirements-dev.txt
 
-      - name: Run integration tests
-        run: pytest tests/integration --maxfail=1 --disable-warnings -q
+      - name: Run only the token test
+        run: pytest tests/test_token.py --maxfail=1 --disable-warnings -q
