@@ -1,0 +1,32 @@
+name: Docker-Compose Smoke
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Compose
+        run: sudo apt-get update && sudo apt-get install -y docker-compose
+
+      - name: Bring up stack
+        run: |
+          docker-compose -f docker-compose.yaml up -d
+          # dejte dovnitř cestu k vašemu compose, nebo jiný soubor
+          sleep 10
+
+      - name: Smoke test GraphQL
+        run: |
+          # otestujeme, že /gql endpoint vrací HTTP 200
+          curl --fail -H "Content-Type: application/json" \
+               -d '{"query":"query{__schema{types{name}}}"}' \
+               http://localhost:8000/gql
+
+      - name: Tear down
+        if: always()
+        run: docker-compose down
