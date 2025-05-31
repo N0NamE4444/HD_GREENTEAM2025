@@ -311,9 +311,116 @@ jobs:
               echo "⚠️  Varování: Schema neobsahuje žádné typy nebo nelze parsovat."
             fi
           fi
+      
+      ######################################################################
+      # Krok 5: Queries
+      ######################################################################
+      - name: GraphQL Smoke Query - EventPage { id }
+        id: query_eventPage
+        shell: bash
+        env:
+          AUTHORIZATION: ${{ steps.login_step.outputs.AUTHORIZATION }}
+        run: |
+          echo "Odesílám jednoduchý query: EventPage { id } na /api/gql …"
+          curl -s -X POST http://localhost:33001/api/gql \
+            -H "Content-Type: application/json" \
+            -H "Cookie: authorization=${AUTHORIZATION}" \
+            --data '{"query":"query EventPage { eventPage { id } }"}' 2>curl_debug.log \
+            | grep '"data"' || (echo "Chyba: EventPage query nevrátilo data" && cat curl_debug.log && exit 1)
+
+      - name: GraphQL Smoke Query - SurveyPage { id }
+        id: query_surveyPage
+        shell: bash
+        env:
+          AUTHORIZATION: ${{ steps.login_step.outputs.AUTHORIZATION }}
+        run: |
+          echo "Odesílám jednoduchý query: SurveyPage { id } na /api/gql …"
+          curl -s -X POST http://localhost:33001/api/gql \
+            -H "Content-Type: application/json" \
+            -H "Cookie: authorization=${AUTHORIZATION}" \
+            --data '{"query":"query SurveyPage { surveyPage { id } }"}' 2>curl_debug.log \
+            | grep '"data"' || (echo "Chyba: SurveyPage query nevrátilo data" && cat curl_debug.log && exit 1)
+
+      - name: GraphQL Smoke Query - ProjectPage { id }
+        id: query_projectPage
+        shell: bash
+        env:
+          AUTHORIZATION: ${{ steps.login_step.outputs.AUTHORIZATION }}
+        run: |
+          echo "Odesílám jednoduchý query: ProjectPage { id } na /api/gql …"
+          curl -s -X POST http://localhost:33001/api/gql \
+            -H "Content-Type: application/json" \
+            -H "Cookie: authorization=${AUTHORIZATION}" \
+            --data '{"query":"query ProjectPage { projectPage { id } }"}' 2>curl_debug.log \
+            | grep '"data"' || (echo "Chyba: ProjectPage query nevrátilo data" && cat curl_debug.log && exit 1)
+
+      - name: GraphQL Smoke Query - PlannedLessonPage { id }
+        id: query_plannedLessonPage
+        shell: bash
+        env:
+          AUTHORIZATION: ${{ steps.login_step.outputs.AUTHORIZATION }}
+        run: |
+          echo "Odesílám jednoduchý query: PlannedLessonPage { id } na /api/gql …"
+          curl -s -X POST http://localhost:33001/api/gql \
+            -H "Content-Type: application/json" \
+            -H "Cookie: authorization=${AUTHORIZATION}" \
+            --data '{"query":"query PlannedLessonPage { plannedLessonPage { id } }"}' 2>curl_debug.log \
+            | grep '"data"' || (echo "Chyba: PlannedLessonPage query nevrátilo data" && cat curl_debug.log && exit 1)
+
+      - name: GraphQL Smoke Query - FacilityPage { id }
+        id: query_facilityPage
+        shell: bash
+        env:
+          AUTHORIZATION: ${{ steps.login_step.outputs.AUTHORIZATION }}
+        run: |
+          echo "Odesílám jednoduchý query: FacilityPage { id } na /api/gql …"
+          curl -s -X POST http://localhost:33001/api/gql \
+            -H "Content-Type: application/json" \
+            -H "Cookie: authorization=${AUTHORIZATION}" \
+            --data '{"query":"query FacilityPage { facilityPage { id } }"}' 2>curl_debug.log \
+            | grep '"data"' || (echo "Chyba: FacilityPage query nevrátilo data" && cat curl_debug.log && exit 1)
+
+      - name: GraphQL Smoke Query - FormPage { id }
+        id: query_formPage
+        shell: bash
+        env:
+          AUTHORIZATION: ${{ steps.login_step.outputs.AUTHORIZATION }}
+        run: |
+          echo "Odesílám jednoduchý query: FormPage { id } na /api/gql …"
+          curl -s -X POST http://localhost:33001/api/gql \
+            -H "Content-Type: application/json" \
+            -H "Cookie: authorization=${AUTHORIZATION}" \
+            --data '{"query":"query FormPage { formPage { id } }"}' 2>curl_debug.log \
+            | grep '"data"' || (echo "Chyba: FormPage query nevrátilo data" && cat curl_debug.log && exit 1)
+
+      - name: GraphQL Smoke Query - PublicationPage { id }
+        id: query_publicationPage
+        shell: bash
+        env:
+          AUTHORIZATION: ${{ steps.login_step.outputs.AUTHORIZATION }}
+        run: |
+          echo "Odesílám jednoduchý query: PublicationPage { id } na /api/gql …"
+          curl -s -X POST http://localhost:33001/api/gql \
+            -H "Content-Type: application/json" \
+            -H "Cookie: authorization=${AUTHORIZATION}" \
+            --data '{"query":"query PublicationPage { publicationPage { id } }"}' 2>curl_debug.log \
+            | grep '"data"' || (echo "Chyba: PublicationPage query nevrátilo data" && cat curl_debug.log && exit 1)
+
+      - name: GraphQL Smoke Query - ExternalIdsPage { id }
+        id: query_externalIdsPage
+        shell: bash
+        env:
+          AUTHORIZATION: ${{ steps.login_step.outputs.AUTHORIZATION }}
+        run: |
+          echo "Odesílám jednoduchý query: ExternalIdsPage { id } na /api/gql …"
+          curl -s -X POST http://localhost:33001/api/gql \
+            -H "Content-Type: application/json" \
+            -H "Cookie: authorization=${AUTHORIZATION}" \
+            --data '{"query":"query ExternalIdsPage { externalIdsPage { id } }"}' 2>curl_debug.log \
+            | grep '"data"' || (echo "Chyba: ExternalIdsPage query nevrátilo data" && cat curl_debug.log && exit 1)
 
       ########################################################################
-      # Krok 5: Tear down Docker Compose
+      # Krok 6: Tear down Docker Compose
       ########################################################################
       - name: Tear down Docker Compose stack
         if: always()
