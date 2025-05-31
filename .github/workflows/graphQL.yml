@@ -155,7 +155,46 @@ jobs:
             || (echo "❌ Stránka neobsahuje 'GraphiQL'." && exit 1)
 
       ######################################################################
-      # Krok 3: Introspekční query (cookie + XSRF) -> /api/gql
+      # Krok 3: Diagnostic checks before GraphQL introspection
+      ######################################################################
+      - name: Pre-flight checks for GraphQL endpoint
+        id: preflight_checks
+        shell: bash
+        env:
+          AUTHORIZATION: ${{ steps.login_step.outputs.AUTHORIZATION }}
+        run: |
+          echo "==> Pre-flight checks před GraphQL dotazem…"
+          
+          # 1. Ověřit, že máme validní authorization cookie
+          if [ -z "${AUTHORIZATION}" ]; then
+            echo "❌ Chyba: AUTHORIZATION cookie je prázdná!"
+            exit 1
+          fi
+          echo "→ Authorization cookie je k dispozici: ${AUTHORIZATION:0:20}..."
+          
+          # 2. Testovat základní dostupnost GraphQL endpointu (GET)
+          echo "==> Testuji GET /api/gql (měl by vrátit 405 Method Not Allowed)…"
+          GET_STATUS=$(curl -s -w "%{http_code}" -o /dev/null \
+            -H "Cookie: authorization=${AUTHORIZATION}" \
+            http://localhost:33001/api/gql)
+          echo "→ GET /api/gql HTTP Status: $GET_STATUS"
+          
+          # 3. Testovat POST bez dat (měl by vrátit nějakou chybu, ale ne 500)
+          echo "==> Testuji POST /api/gql bez dat…"
+          NO_DATA_STATUS=$(curl -s -w "%{http_code}" -o empty_post.txt -X POST \
+            -H "Content-Type: application/json" \
+            -H "Cookie: authorization=${AUTHORIZATION}" \
+            http://localhost:33001/api/gql)
+          echo "→ POST bez dat HTTP Status: $NO_DATA_STATUS"
+          echo "→ Response:"
+          cat empty_post.txt 2>/dev/null || echo "Žádná response"
+          
+          # 4. Zkontrolovat Docker logy pro GraphQL službu
+          echo "==> Docker logy pro debug…"
+          docker compose -f docker-compose.hk2025.yml logs --tail=20 || true
+
+      ######################################################################
+      # Krok 4: Introspekční query s detailním debuggingem
       ######################################################################
       - name: Introspect GraphQL Schema (POST /api/gql)
         id: introspect_schema
@@ -169,27 +208,60 @@ jobs:
             exit 1
           fi
 
-          # Definice introspekčního GraphQL dotazu
-          INTROSPECTION_QUERY='{ "query": "{ __schema { types { name } } }" }'
+          # Zkusme nejdříve jednodušší GraphQL query
+          echo "==> Zkouším jednoduchý GraphQL query první…"
+          SIMPLE_QUERY='{"query":"query { __typename }"}'
+          
+          SIMPLE_STATUS=$(curl -s -w "%{http_code}" -o simple_response.json -X POST \
+            http://localhost:33001/api/gql \
+            -H "Content-Type: application/json" \
+            -H "Cookie: authorization=${AUTHORIZATION}" \
+            --data "$SIMPLE_QUERY")
+          
+          echo "→ Simple query HTTP Status: $SIMPLE_STATUS"
+          echo "→ Simple query response:"
+          cat simple_response.json 2>/dev/null || echo "Žádná response"
+          
+          # Pokud simple query selhala, ukončíme s detailním debug info
+          if [ "$SIMPLE_STATUS" != "200" ]; then
+            echo "❌ I jednoduchý GraphQL query selhal s HTTP $SIMPLE_STATUS"
+            echo "=== Docker logy pro debug ==="
+            docker compose -f docker-compose.hk2025.yml logs --tail=50 || true
+            echo "=== Konec docker logů ==="
+            exit 1
+          fi
 
-          echo "==> Posílám GraphQL introspection query…"
+          # Nyní zkusíme introspection query
+          echo "==> Jednoduchý query prošel, zkouším introspection…"
+          INTROSPECTION_QUERY='{"query":"{ __schema { types { name } } }"}'
+
           echo "→ Query: $INTROSPECTION_QUERY"
           echo "→ Cookie: authorization=${AUTHORIZATION:0:50}..."
 
-          # POST na /api/gql se samotnou hlavičkou Cookie: authorization=…
-          # Důležité: Uložíme jak HTTP status kód, tak response body
-          HTTP_STATUS=$(curl -s -w "%{http_code}" -o response.json -X POST http://localhost:33001/api/gql \
+          # POST na /api/gql s verbose curl pro debug
+          HTTP_STATUS=$(curl -v -w "%{http_code}" -o response.json -X POST \
+            http://localhost:33001/api/gql \
             -H "Content-Type: application/json" \
             -H "Cookie: authorization=${AUTHORIZATION}" \
-            --data "$INTROSPECTION_QUERY")
+            --data "$INTROSPECTION_QUERY" 2>curl_debug.log)
 
           echo "→ HTTP Status: $HTTP_STATUS"
+          
+          # Zobrazíme curl debug info
+          echo "=== Curl debug info ==="
+          cat curl_debug.log || true
+          echo "=== Konec curl debug ==="
 
           # Zkontrolujeme HTTP status
           if [ "$HTTP_STATUS" != "200" ]; then
             echo "❌ Chyba: GraphQL endpoint vrací HTTP $HTTP_STATUS namísto 200."
             echo "Response body:"
             cat response.json 2>/dev/null || echo "Nelze přečíst response.json"
+            
+            # Dodatečné debug info
+            echo "=== Docker logy po chybě ==="
+            docker compose -f docker-compose.hk2025.yml logs --tail=30 || true
+            echo "=== Konec docker logů ==="
             exit 1
           fi
 
@@ -241,7 +313,7 @@ jobs:
           fi
 
       ########################################################################
-      # Krok 4: Tear down Docker Compose
+      # Krok 5: Tear down Docker Compose
       ########################################################################
       - name: Tear down Docker Compose stack
         if: always()
