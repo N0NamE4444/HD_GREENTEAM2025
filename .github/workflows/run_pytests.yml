@@ -9,8 +9,6 @@ on:
   pull_request:
     #branches: [ latest ]
     branches: [ pipelines ]
-    paths:
-      - 'tests/test_token.py'
 
 jobs:
   test-token:

@@ -1,5 +1,5 @@
 name: "Lint Dockerfiles"
-
+#* works
 on:
   push:
     #branches: [ latest ]
@@ -10,6 +10,7 @@ on:
   pull_request:
     #branches: [ latest ]
     branches: [ pipelines ]
+    # path - only run if the files in question are changed
     paths:
       - 'Dockerfile'
       - 'docker-compose*.yml'
