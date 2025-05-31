@@ -1,9 +1,11 @@
 name: "Validate systemdata JSON Files"
-
+#* working - but some json files are invalid
 on:
-  push:
-    branches: [ pipelines ]
+  # push:
+  #   #branches: [ latest ]
+  #   branches: [ pipelines ]
   pull_request:
+    #branches: [ latest ]
     branches: [ pipelines ]
 
 jobs:
