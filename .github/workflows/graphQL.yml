@@ -45,7 +45,7 @@ jobs:
 
       ######################################################################
       # Krok 1: OAuth2 login → stáhnout login stránku, extrahovat key, poslat POST,
-      #           a uložit výslednou cookie “authorization”
+      #           a uložit výslednou cookie "authorization"
       ######################################################################
       - name: Perform OAuth2 login and save authorization cookie
         id: login_step
@@ -111,7 +111,6 @@ jobs:
           # Uložit JWT (authorization) do GitHub kelu pro další kroky
           echo "AUTHORIZATION=$JWT_COOKIE" >> "$GITHUB_OUTPUT"
           echo "✅ OAuth2 login proběhl, authorization cookie uložena."
-        # konec run
 
       ######################################################################
       # Krok 2: Ověřím, že GET /graphiql/ vrátí 200 OK (pomocí uložené cookie)
@@ -119,7 +118,6 @@ jobs:
       - name: Smoke test GraphiQL UI (GET /graphiql)
         id: graphiql_ui_test
         shell: bash
-        # Přeneste hodnotu z předchozího kroku
         env:
           AUTHORIZATION: ${{ steps.login_step.outputs.AUTHORIZATION }}
         run: |
@@ -151,11 +149,10 @@ jobs:
           echo "${BODY:0:200}" | sed 's/<[^>]*>/ /g'
           echo "…"
 
-          # Ovĕříme, že stránka skutečně obsahuje GraphiQL UI (hledáme “GraphiQL” v HTML)
+          # Ovĕříme, že stránka skutečně obsahuje GraphiQL UI (hledáme "GraphiQL" v HTML)
           echo "$BODY" | grep -i "GraphiQL" \
             && echo "✅ Stránka obsahuje 'GraphiQL'." \
             || (echo "❌ Stránka neobsahuje 'GraphiQL'." && exit 1)
-      
 
       ######################################################################
       # Krok 3: Introspekční query (cookie + XSRF) -> /api/gql
@@ -175,24 +172,73 @@ jobs:
           # Definice introspekčního GraphQL dotazu
           INTROSPECTION_QUERY='{ "query": "{ __schema { types { name } } }" }'
 
+          echo "==> Posílám GraphQL introspection query…"
+          echo "→ Query: $INTROSPECTION_QUERY"
+          echo "→ Cookie: authorization=${AUTHORIZATION:0:50}..."
+
           # POST na /api/gql se samotnou hlavičkou Cookie: authorization=…
-          RESPONSE=$(
-            curl -s -X POST http://localhost:33001/api/gql \
-              -H "Content-Type: application/json" \
-              -H "Cookie: authorization=${AUTHORIZATION}" \
-              --data "$INTROSPECTION_QUERY" \
-            || true
-          )
+          # Důležité: Uložíme jak HTTP status kód, tak response body
+          HTTP_STATUS=$(curl -s -w "%{http_code}" -o response.json -X POST http://localhost:33001/api/gql \
+            -H "Content-Type: application/json" \
+            -H "Cookie: authorization=${AUTHORIZATION}" \
+            --data "$INTROSPECTION_QUERY")
 
-          echo "=== Introspection response (prvních 50 řádků): ==="
-          echo "$RESPONSE" | head -n 50
-          echo "…"
+          echo "→ HTTP Status: $HTTP_STATUS"
 
-          # Ověříme, že v odpovědi vidíme "__schema"
-          echo "$RESPONSE" | grep '"__schema"' \
-            && echo "✅ Introspection OK - našel jsem __schema." \
-            || (echo "❌ Introspection selhala - nenalezen __schema." && exit 1)
+          # Zkontrolujeme HTTP status
+          if [ "$HTTP_STATUS" != "200" ]; then
+            echo "❌ Chyba: GraphQL endpoint vrací HTTP $HTTP_STATUS namísto 200."
+            echo "Response body:"
+            cat response.json 2>/dev/null || echo "Nelze přečíst response.json"
+            exit 1
+          fi
 
+          # Zobrazíme response pro debug
+          echo "=== GraphQL Response (prvních 500 znaků): ==="
+          head -c 500 response.json 2>/dev/null || echo "Nelze přečíst response.json"
+          echo
+          echo "==="
+
+          # Ověříme, že response.json existuje a není prázdný
+          if [ ! -s response.json ]; then
+            echo "❌ Chyba: Response je prázdný nebo neexistuje!"
+            exit 1
+          fi
+
+          # Ověříme, že v odpovědi vidíme "__schema" - použijeme jq pokud je dostupné, jinak grep
+          if command -v jq >/dev/null 2>&1; then
+            echo "→ Používám jq pro parsování JSON..."
+            SCHEMA_FOUND=$(jq -r '.data.__schema' response.json 2>/dev/null || echo "null")
+            if [ "$SCHEMA_FOUND" != "null" ] && [ "$SCHEMA_FOUND" != "" ]; then
+              echo "✅ Introspection OK - našel jsem __schema pomocí jq."
+            else
+              echo "❌ Introspection selhala - nenalezen __schema v JSON struktuře."
+              echo "Celá response:"
+              cat response.json
+              exit 1
+            fi
+          else
+            echo "→ jq není dostupné, používám grep..."
+            if grep -q '"__schema"' response.json; then
+              echo "✅ Introspection OK - našel jsem __schema pomocí grep."
+            else
+              echo "❌ Introspection selhala - nenalezen __schema v response."
+              echo "Celá response:"
+              cat response.json
+              exit 1
+            fi
+          fi
+
+          # Dodatečná kontrola - počet typů ve schématu
+          if command -v jq >/dev/null 2>&1; then
+            TYPE_COUNT=$(jq -r '.data.__schema.types | length' response.json 2>/dev/null || echo "0")
+            echo "→ Počet typů ve schématu: $TYPE_COUNT"
+            if [ "$TYPE_COUNT" -gt "0" ]; then
+              echo "✅ Schema obsahuje $TYPE_COUNT typů."
+            else
+              echo "⚠️  Varování: Schema neobsahuje žádné typy nebo nelze parsovat."
+            fi
+          fi
 
       ########################################################################
       # Krok 4: Tear down Docker Compose
@@ -203,4 +249,3 @@ jobs:
         run: |
           echo "==> Clean up: Ukončuji Docker Compose stack…"
           docker compose -f docker-compose.hk2025.yml down --volumes
-        # end of run
