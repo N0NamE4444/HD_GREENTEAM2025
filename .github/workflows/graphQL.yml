@@ -101,11 +101,13 @@ jobs:
             echo "❌ Chyba: V cookie-jar nebyla nalezena hodnota 'authorization'!"
             exit 1
           fi
+
+          # **TADY KONEČNĚ VYPISUJEME CELÝ TOKEN** pro snadné debugování:
           echo "→ Extrahovaný JWT token: $JWT"
 
           # 5. Uložit JWT do výstupu kroku pro další kroky
           echo "jwt=$JWT" >> "$GITHUB_OUTPUT"
-          echo "✅ JWT token úspěšně získán."
+          echo "✅ JWT token úspěšně získán a uložen do $GITHUB_OUTPUT."
         # end of run
 
       ########################################################################
@@ -115,6 +117,7 @@ jobs:
         shell: bash
         run: |
           JWT_TOKEN="${{ steps.extract_jwt.outputs.jwt }}"
+          # **OPĚT TLSK POVOLENÍ VYPISU CELÉHO TOKENU**
           echo "→ Používám JWT: $JWT_TOKEN"
           if [ -z "$JWT_TOKEN" ]; then
             echo "❌ Chyba: JWT_TOKEN je prázdný!"
@@ -141,6 +144,7 @@ jobs:
         run: |
           JWT_TOKEN="${{ steps.extract_jwt.outputs.jwt }}"
           echo "==> Provedení introspekčního dotazu na /api/gql s Bearer tokenem…"
+          echo "→ (pro kontrolu) znovu JWT: $JWT_TOKEN"
           INTROSPECTION_QUERY='{"query":"{ __schema { types { name } } }"}'
           RESPONSE=$(
             curl -s -X POST http://localhost:33001/api/gql \
