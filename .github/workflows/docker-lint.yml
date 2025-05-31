@@ -2,14 +2,12 @@ name: "Lint Dockerfiles"
 
 on:
   push:
-    # Trigger on changes to Dockerfile or any docker-compose*.yml
     #branches: [ latest ]
     branches: [ pipelines ]
     paths:
       - 'Dockerfile'
       - 'docker-compose*.yml'
   pull_request:
-    # Trigger on PRs that change Dockerfile or any docker-compose*.yml
     #branches: [ latest ]
     branches: [ pipelines ]
     paths:
