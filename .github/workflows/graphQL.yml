@@ -9,7 +9,7 @@ on:
 
 jobs:
   graphql-smoke:
-    name: Build, Get JWT & Run Introspection in One Job
+    name: Build, Login & GraphQL Introspection (cookie‐based JWT)
     runs-on: ubuntu-latest
 
     env:
@@ -18,21 +18,25 @@ jobs:
       DEMO_PASSWORD: john.newbie@world.com
 
     steps:
+      # 1) Checkout repozitáře
       - name: Checkout repository
         uses: actions/checkout@v3
 
+      # 2) Spustit Docker Compose stack
       - name: Start Docker Compose stack
         shell: bash
         run: |
           echo "==> Spouštím Docker Compose stack na pozadí..."
           docker compose -f docker-compose.hk2025.yml up -d --build
 
+      # 3) Čekáme, až služby naběhnou (cca 30 s)
       - name: Wait for services to be healthy
         shell: bash
         run: |
           echo "Čekám 30 sekund, aby služby absolvovaly healthcheck..."
           sleep 30
 
+      # 4) (Debug) Zobrazit běžící kontejnery
       - name: Check running containers
         shell: bash
         run: |
@@ -40,94 +44,94 @@ jobs:
           docker ps -a
 
       ########################################################################
-      # Krok 1: Přihlášení → stažení cookies + extrakce JWT (authorization)
+      # Krok 1: Přihlášení – GET login stránku, extrakce `key`, POST login + cookies
       ########################################################################
-      - name: Perform OAuth2 login and extract JWT
-        id: extract_jwt
+      - name: Perform OAuth2 login and save cookies
+        id: login_step
         shell: bash
         run: |
-          echo "==> 1) Stahuji login stránku (pro získání 'key' a počáteční cookie)…"
-          COOKIE_INIT="cookie_init.txt"
+          echo "==> 1) STAHUJI login stránku (pro získání 'key' a počáteční cookie)…"
+          COOKIE_INIT="cookies_init.txt"
           LOGIN_HTML="login.html"
           LOGIN_URL="http://localhost:33001/oauth/login2?redirect_uri=/"
 
-          # 1. GET login form + uložení počátečních cookies a HTML
+          # 1. Stáhnout login HTML (+ uložit první cookie_init.txt)
           curl -s -L "$LOGIN_URL" \
             -c "$COOKIE_INIT" \
             -o "$LOGIN_HTML"
 
-          # Debug: vypišme část HTML, abychom viděli formulář
-          echo "→ Obsah login.html (prvních 20 řádků):"
+          echo "→ Extrahovaná část login.html (prvních 20 řádků):"
           head -n 20 "$LOGIN_HTML" || true
           echo "..."
 
-          # 2. Extrahovat hodnotu 'key' (value bez uvozovek)
-          echo "==> 2) Extrahuji 'key' ze staženého HTML…"
+          # 2. Extrahovat skryté pole "key" (value bez uvozovek)
+          echo "==> 2) EXTRAHUJI 'key' ze staženého HTML…"
           KEY=$(grep -oP 'name="key".*?value=\K[^ >]+' "$LOGIN_HTML" || true)
           if [ -z "$KEY" ]; then
             echo "❌ Chyba: Nepodařilo se najít hodnotu 'key' v $LOGIN_HTML!"
-            echo "Ukažme celý HTML (kvůli ladění):"
             cat "$LOGIN_HTML"
             exit 1
           fi
           echo "→ Nalezen KEY: $KEY"
 
-          # 3. POST login (username + password + key) → uložíme cookies do cookies.txt
-          echo "==> 3) Posílám POST s přihlášením…"
-          COOKIE_JAR="cookies.txt"
+          # 3. POST přihlášení (username + password + key) → uložíme do cookies_auth.txt
+          echo "==> 3) POSÍLÁM POST s přihlášením (username + password + key)…"
+          COOKIE_AUTH="cookies_auth.txt"
           curl -s -L "$LOGIN_URL" \
             -b "$COOKIE_INIT" \
-            -c "$COOKIE_JAR" \
+            -c "$COOKIE_AUTH" \
             -H "Content-Type: application/x-www-form-urlencoded" \
             -d "username=${{ env.DEMO_EMAIL }}" \
             -d "password=${{ env.DEMO_PASSWORD }}" \
             -d "key=${KEY}" \
             -o /dev/null
 
-          # Zkontrolujme, že cookies.txt existuje a není prázdný
-          if [ ! -s "$COOKIE_JAR" ]; then
-            echo "❌ Chyba: Nepodařilo se uložit cookie do $COOKIE_JAR."
-            ls -l "$COOKIE_JAR" || true
+          # Ověření: soubor cookies_auth.txt není prázdný
+          if [ ! -s "$COOKIE_AUTH" ]; then
+            echo "❌ Chyba: Nepodařilo se uložit cookies do $COOKIE_AUTH."
+            ls -l "$COOKIE_AUTH" || true
             exit 1
           fi
 
-          # Debug: vypišme celý obsah cookies.txt
-          echo "→ Obsah cookies.txt:"
-          cat "$COOKIE_JAR"
+          # Debug: vypišme celý obsah cookies_auth.txt
+          echo "→ Obsah cookies_auth.txt (celý cookie‐jar):"
+          cat "$COOKIE_AUTH"
 
-          # 4. Extrahovat JWT z cookie 'authorization'
-          JWT=$(grep -i "authorization" "$COOKIE_JAR" | awk '{print $7}' | head -n 1 || true)
+          # 4. Extrahovat JWT token z cookie 'authorization'
+          JWT=$(grep -i "authorization" "$COOKIE_AUTH" | awk '{print $7}' | head -n 1 || true)
           if [ -z "$JWT" ]; then
             echo "❌ Chyba: V cookie-jar nebyla nalezena hodnota 'authorization'!"
             exit 1
           fi
 
-          # **TADY KONEČNĚ VYPISUJEME CELÝ TOKEN** pro snadné debugování:
-          echo "→ Extrahovaný JWT token: $JWT"
+          # Tady vypíšeme celý JWT běžně (GH Actions ho v UI zamaskuje, ale uvidíte, že něco je)
+          echo "→ Extrahovaný JWT token (cookie 'authorization'):"
+          echo "$JWT"
 
-          # 5. Uložit JWT do výstupu kroku pro další kroky
+          # Uložit JWT do výstupu kroku (abychom jej mohli použít v následujících krocích)
           echo "jwt=$JWT" >> "$GITHUB_OUTPUT"
-          echo "✅ JWT token úspěšně získán a uložen do $GITHUB_OUTPUT."
+          echo "✅ JWT token úspěšně získán ze souboru $COOKIE_AUTH."
         # end of run
 
       ########################################################################
-      # Krok 2: HEAD/GET GraphQL endpoint s JWT
+      # Krok 2: HEAD request na GraphQL endpoint s Cookie: authorization=<JWT>
       ########################################################################
-      - name: HEAD request on GraphQL endpoint with Bearer token
+      - name: HEAD request on GraphQL endpoint with cookie auth
         shell: bash
         run: |
-          JWT_TOKEN="${{ steps.extract_jwt.outputs.jwt }}"
-          # **OPĚT TLSK POVOLENÍ VYPISU CELÉHO TOKENU**
-          echo "→ Používám JWT: $JWT_TOKEN"
+          JWT_TOKEN="${{ steps.login_step.outputs.jwt }}"
+          echo "→ Používám JWT token z cookie: $JWT_TOKEN"
           if [ -z "$JWT_TOKEN" ]; then
             echo "❌ Chyba: JWT_TOKEN je prázdný!"
             exit 1
           fi
 
+          # Pro případ, že cURL vrátí nenulový exit‐kód, přidáme "|| true"
           HTTP_STATUS=$(
             curl -s -o /dev/null -w "%{http_code}" \
-              -H "Authorization: Bearer $JWT_TOKEN" \
-              http://localhost:33001/graphiql -X HEAD
+              -H "Cookie: authorization=$JWT_TOKEN" \
+              http://localhost:33001/api/gql -X HEAD \
+              || true
           )
           echo "HTTP status: $HTTP_STATUS"
           if [[ "$HTTP_STATUS" != "200" && "$HTTP_STATUS" != "400" && "$HTTP_STATUS" != "405" ]]; then
@@ -137,20 +141,22 @@ jobs:
           echo "✅ HEAD request úspěšný (status $HTTP_STATUS)."
 
       ########################################################################
-      # Krok 3: GraphQL Introspection Query s JWT
+      # Krok 3: GraphQL Introspection Query – POST s Cookie: authorization=<JWT>
       ########################################################################
       - name: Perform GraphQL Introspection Query
         shell: bash
         run: |
-          JWT_TOKEN="${{ steps.extract_jwt.outputs.jwt }}"
-          echo "==> Provedení introspekčního dotazu na graphiql s Bearer tokenem…"
-          echo "→ (pro kontrolu) znovu JWT: $JWT_TOKEN"
+          JWT_TOKEN="${{ steps.login_step.outputs.jwt }}"
+          echo "==> Provedení introspekčního dotazu na /api/gql s cookie auth…"
+          echo "→ (pro kontrolu) znovu JWT token: $JWT_TOKEN"
           INTROSPECTION_QUERY='{"query":"{ __schema { types { name } } }"}'
+
           RESPONSE=$(
-            curl -s -X POST http://localhost:33001/graphiql \
+            curl -s -X POST http://localhost:33001/api/gql \
               -H "Content-Type: application/json" \
-              -H "Authorization: Bearer $JWT_TOKEN" \
-              -d "$INTROSPECTION_QUERY"
+              -H "Cookie: authorization=$JWT_TOKEN" \
+              -d "$INTROSPECTION_QUERY" \
+              || true
           )
 
           echo "=== Introspection response: ==="
