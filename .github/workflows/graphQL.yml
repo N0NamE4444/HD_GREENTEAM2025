@@ -104,15 +104,6 @@ jobs:
         shell: bash
         # Tento krok spustí čistý introspekční query a kontroluje, zda odpověď obsahuje "__schema". :contentReference[oaicite:6]{index=6}
 
-      - name: Upload introspection.json as artifact
-        if: success()
-        uses: actions/upload-artifact@v3
-        with:
-          name: graphql-introspection-schema
-          path: |
-            <(echo "${{ steps.introspection.outputs.schema }}")
-        # Tento krok uloží JSON introspekce jako artefakt CI, aby se dal stáhnout z GitHub Actions UI. :contentReference[oaicite:7]{index=7}
-
       - name: Tear down Docker Compose stack
         if: always()
         run: |
