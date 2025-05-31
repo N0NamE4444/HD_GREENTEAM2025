@@ -1,0 +1,67 @@
+name: HTTP Smoke Tests
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  http-smoke:
+    name: HTTP Smoke Tests (jediný port 33001)
+    runs-on: ubuntu-latest
+
+    env:
+      TZ: Europe/Prague
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Start Docker Compose stack
+        run: |
+          # Spustíme celý stack na pozadí. Vše je dostupné na localhost:33001 (frontend:33001:8000)
+          docker-compose -f docker-compose.hk2025.yml up -d --build
+
+      - name: Wait for frontend + podsystémy
+        run: |
+          echo "Čekám 30 sekund, aby se služby rozběhly a healthchecky prošly..."
+          sleep 30
+
+      - name: Verify HTTP 200 on all service URLs
+        run: |
+          set -e
+          echo "Ověřuji přístupnost jednotlivých URL (HTTP 200)…"
+
+          # Seznam „cest“, které má frontend proxyovat
+          SERVICES=(
+            "index"
+            "ug"
+            "lessons"
+            "projects"
+            "events"
+            "surveys"
+            "facilities"
+            "granting"
+            "forms"
+            "publications"
+            "users"
+          )
+
+          for S in "${SERVICES[@]}"; do
+            URL="http://localhost:33001/${S}/"
+            echo -n "  → GET ${URL}… "
+            # -f = fail při jakékoliv 4xx/5xx odezvě, -I = HEAD request (jen hlavičky)
+            if curl -s -f -I "$URL" >/dev/null; then
+              echo "OK"
+            else
+              echo "CHYBA (není dostupné: ${URL})"
+              exit 1
+            fi
+          done
+
+      - name: Tear down Docker Compose stack
+        if: always()
+        run: |
+          echo "Clean up…"
+          docker-compose -f docker-compose.hk2025.yml down --volumes

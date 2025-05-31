@@ -1,0 +1,111 @@
+name: CI - GraphQL Smoke Tests
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  graphql-smoke:
+    name: GraphQL Smoke Tests (jediný port 33001)
+    runs-on: ubuntu-latest
+
+    env:
+      TZ: Europe/Prague
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Start Docker Compose stack
+        run: |
+          # Spustíme celý stack na pozadí. Vše je dostupné na localhost:33001 (frontend:33001:8000)
+          docker-compose -f docker-compose.hk2025.yml up -d --build
+
+      - name: Wait for services to be healthy
+        run: |
+          echo "Čekám 30 sekund, aby se služby rozběhly a healthchecky prošly..."
+          sleep 30
+
+      - name: Install graphql-cli for introspection
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nodejs npm
+          npm install -g graphql-cli
+
+      - name: GraphQL Introspection Check
+        run: |
+          echo "Testuji introspekci GraphQL schema přes GraphiQL endpoint na http://localhost:33001/graphiql/…"
+          graphql introspect-schema http://localhost:33001/graphiql/ --json | grep '"__schema"' \
+            || (echo "Chyba: Introspection selhala" && exit 1)
+
+      - name: GraphQL Smoke Query - EventPage
+        run: |
+          echo "Odesílám jednoduchý query: EventPage { id } …"
+          curl -s -X POST http://localhost:33001/graphiql/ \
+            -H "Content-Type: application/json" \
+            -d '{"query":"query EventPage { eventPage { id } }"}' \
+            | grep '"data"' || (echo "Chyba: EventPage query nevrátilo data" && exit 1)
+
+      - name: GraphQL Smoke Query - SurveyPage
+        run: |
+          echo "Odesílám jednoduchý query: SurveyPage { id } …"
+          curl -s -X POST http://localhost:33001/graphiql/ \
+            -H "Content-Type: application/json" \
+            -d '{"query":"query SurveyPage { surveyPage { id } }"}' \
+            | grep '"data"' || (echo "Chyba: SurveyPage query nevrátilo data" && exit 1)
+
+      - name: GraphQL Smoke Query - ProjectPage
+        run: |
+          echo "Odesílám jednoduchý query: ProjectPage { id } …"
+          curl -s -X POST http://localhost:33001/graphiql/ \
+            -H "Content-Type: application/json" \
+            -d '{"query":"query ProjectPage { projectPage { id } }"}' \
+            | grep '"data"' || (echo "Chyba: ProjectPage query nevrátilo data" && exit 1)
+
+      - name: GraphQL Smoke Query - LessonPage
+        run: |
+          echo "Odesílám jednoduchý query: PlannedLessonPage { id } …"
+          curl -s -X POST http://localhost:33001/graphiql/ \
+            -H "Content-Type: application/json" \
+            -d '{"query":"query PlannedLessonPage { plannedLessonPage { id } }"}' \
+            | grep '"data"' || (echo "Chyba: LessonPage query nevrátilo data" && exit 1)
+
+      - name: GraphQL Smoke Query - FacilitiesPage
+        run: |
+          echo "Odesílám jednoduchý query: FacilityPage { id } …"
+          curl -s -X POST http://localhost:33001/graphiql/ \
+            -H "Content-Type: application/json" \
+            -d '{"query":"query FacilityPage { facilityPage { id } }"}' \
+            | grep '"data"' || (echo "Chyba: FacilitiesPage query nevrátilo data" && exit 1)
+
+      - name: GraphQL Smoke Query - FormPage
+        run: |
+          echo "Odesílám jednoduchý query: FormPage { id } …"
+          curl -s -X POST http://localhost:33001/graphiql/ \
+            -H "Content-Type: application/json" \
+            -d '{"query":"query FormPage { formPage { id } }"}' \
+            | grep '"data"' || (echo "Chyba: FormPage query nevrátilo data" && exit 1)
+
+      - name: GraphQL Smoke Query - PublicationPage
+        run: |
+          echo "Odesílám jednoduchý query: PublicationPage { id } …"
+          curl -s -X POST http://localhost:33001/graphiql/ \
+            -H "Content-Type: application/json" \
+            -d '{"query":"query PublicationPage { publicationPage { id } }"}' \
+            | grep '"data"' || (echo "Chyba: PublicationPage query nevrátilo data" && exit 1)
+
+      - name: GraphQL Smoke Query - ExternalIdPage
+        run: |
+          echo "Odesílám jednoduchý query: ExternalIdPage { id } …"
+          curl -s -X POST http://localhost:33001/graphiql/ \
+            -H "Content-Type: application/json" \
+            -d '{"query":"query ExternalIdsPage { externalIdsPage { id } }"}' \
+            | grep '"data"' || (echo "Chyba: ExternalIdPage query nevrátilo data" && exit 1)
+
+      - name: Tear down Docker Compose stack
+        if: always()
+        run: |
+          echo "Clean up…"
+          docker-compose -f docker-compose.hk2025.yml down --volumes

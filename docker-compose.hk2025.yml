@@ -10,7 +10,7 @@ services:
   frontend:
     image: hrbolek/frontend:0.9.0
     environment:
-      - DEMO=True
+      - DEMO=False
       - DEMODATA=True
       # link na db mimo stack
       # - POSTGRES_HOST=host.docker.internal:5432
