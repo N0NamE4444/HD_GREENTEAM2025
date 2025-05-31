@@ -166,45 +166,33 @@ jobs:
         env:
           AUTHORIZATION: ${{ steps.login_step.outputs.AUTHORIZATION }}
         run: |
-          echo "==> 3) Provedu introspekční dotaz na /api/gql s cookie + XSRF…"
-          # 1) Nejdřív ověříme, že máme token
+          echo "==> 3) Provedu introspekční dotaz na /api/gql pouze s cookie authorization…"
           if [ -z "${AUTHORIZATION}" ]; then
             echo "❌ Chyba: AUTHORIZATION cookie je prázdná!"
             exit 1
           fi
 
-          # 2) Z cookies_auth.txt vyextrahujeme _xsrf token
-          XSRF_TOKEN=$(grep -i "_xsrf" cookies_auth.txt | awk '{print $7}' | head -n 1 || true)
-          if [ -z "${XSRF_TOKEN}" ]; then
-            echo "❌ Chyba: Nebyl nalezen _xsrf token v cookies_auth.txt"
-            exit 1
-          fi
-          echo "→ Extrahovaný XSRF_TOKEN: ${XSRF_TOKEN:0:20}… (zkráceno)"
-
-          # 3) Definice introspekčního GraphQL dotazu
+          # Definice introspekčního GraphQL dotazu
           INTROSPECTION_QUERY='{ "query": "{ __schema { types { name } } }" }'
 
-          # 4) Pošleme POST na /api/gql s oběma hlavičkami: 
-          #    - Cookie: authorization=<JWT>
-          #    - X-XSRFToken: <_xsrf>
-          #    Uložíme odpověď do proměnné RESPONSE
+          # POST na /api/gql se samotnou hlavičkou Cookie: authorization=…
           RESPONSE=$(
             curl -s -X POST http://localhost:33001/api/gql \
               -H "Content-Type: application/json" \
-              -H "Cookie: authorization=${AUTHORIZATION}; _xsrf=${XSRF_TOKEN}" \
-              -H "X-XSRFToken: ${XSRF_TOKEN}" \
+              -H "Cookie: authorization=${AUTHORIZATION}" \
               --data "$INTROSPECTION_QUERY" \
             || true
           )
 
-          echo "=== Introspection response: ==="
+          echo "=== Introspection response (prvních 50 řádků): ==="
           echo "$RESPONSE" | head -n 50
           echo "…"
 
-          # 5) Zkontrolujeme, že JSON obsahuje "__schema"
+          # Ověříme, že v odpovědi vidíme "__schema"
           echo "$RESPONSE" | grep '"__schema"' \
             && echo "✅ Introspection OK - našel jsem __schema." \
             || (echo "❌ Introspection selhala - nenalezen __schema." && exit 1)
+
 
       ########################################################################
       # Krok 4: Tear down Docker Compose
