@@ -1,15 +1,17 @@
 # .github/workflows/python-lint-only.yml
 name: CI - Python Lint Only
-#* working - but throws errors cuz bad formating and unused imports etc.
+#* works, but the python files are badly formatted and there are plenty of unused imports
 on:
   # push:
+  #   #branches: [ latest ]
   #   branches: [ pipelines ]
   pull_request:
+    #branches: [ latest ]
     branches: [ pipelines ]
 
 jobs:
   python-lint:
-    name: Flake8 linting (jen chyby “F”)
+    name: Flake8 linting (only "F" error codes)
     runs-on: ubuntu-latest
 
     env:
@@ -29,8 +31,8 @@ jobs:
           python -m pip install --upgrade pip
           pip install flake8
 
-      - name: Run Flake8, select only “F” error codes
+      - name: Run Flake8, select only "F" error codes
         run: |
-          # Kontrola F-kódů (např. F401 unused-import, F821 undefined-name, apod.)
-          # Ignorujeme všechny chyby E/E2/E3/W, abychom zatím neřešili formátování ani délku řádků.
+          # Check only F-codes (e.g., F401 unused-import, F821 undefined-name, etc.)
+          # Ignore E/E2/E3/W errors to skip formatting and line length issues for now.
           flake8 server/ tests/ --ignore=E,E2,E3,W --select=F || exit 1
