@@ -1,11 +1,11 @@
 name: Run test_token.py
 
 on:
-  push:
-    #branches: [ latest ]
-    branches: [ pipelines ]
-    paths:
-      - 'tests/test_token.py'
+  # push:
+  #   #branches: [ latest ]
+  #   branches: [ pipelines ]
+  #   paths:
+  #     - 'tests/test_token.py'
   pull_request:
     #branches: [ latest ]
     branches: [ pipelines ]

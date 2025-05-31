@@ -1,9 +1,9 @@
 name: Python package
 
 on:
-  push:
-    #branches: [ latest ]
-    branches: [ pipelines ]
+  # push:
+  #   #branches: [ latest ]
+  #   branches: [ pipelines ]
   pull_request:
     #branches: [ latest ]
     branches: [ pipelines ]

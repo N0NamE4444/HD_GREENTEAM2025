@@ -1,0 +1,42 @@
+name: CI - Python Lint Checks
+
+on:
+  push:
+    branches: [ pipelines ]
+  pull_request:
+    branches: [ pipelines ]
+
+jobs:
+  python-lint:
+    name: Python Lint / Format Checks
+    runs-on: ubuntu-latest
+
+    env:
+      TZ: Europe/Prague
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python 3.x
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.x"
+
+      - name: Install linting tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install black isort flake8
+
+      - name: Black formatting check
+        run: |
+          # Pokud chcete změnit cesty k Python kódu, upravte tyto cesty
+          black --check server/ tests/ || exit 1
+
+      - name: isort import-sorting check
+        run: |
+          isort --check-only server/ tests/ || exit 1
+
+      - name: Flake8 linting
+        run: |
+          flake8 server/ tests/ || exit 1
