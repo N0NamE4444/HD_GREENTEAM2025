@@ -1,4 +1,3 @@
-# .github/workflows/graphql‐smoke-tests.yml
 name: CI - GraphQL Smoke Tests (OAuth2 login)
 
 on:
@@ -14,7 +13,7 @@ jobs:
 
     env:
       TZ: Europe/Prague
-      # Přihlášení na OAuth endpoint (demo uživatel):
+      # Přihlašovací údaje: demo uživatel
       DEMO_EMAIL: john.newbie@world.com
       DEMO_PASSWORD: john.newbie@world.com
 
@@ -39,34 +38,65 @@ jobs:
 
       - name: Perform OAuth2 login (get session cookie)
         run: |
-          echo "==> Provádím OAuth2 login na http://localhost:33001/oauth/login2?redirect_uri=/ …"
-          # Vytvoříme cookie-jar file, který curl uloží z odpovědi
-          COOKIE_JAR="cookies.txt"
-          # Odesíláme POST s přihlášením (form‐encoding). 
-          # Předpokládáme, že pole ve formuláři jsou `email` a `password`.
-          # Pokud se liší, upravte klíče `email=` a `password=`.
-          curl -s -c "$COOKIE_JAR" -L -X POST "http://localhost:33001/oauth/login2?redirect_uri=/" \
-            -H "Content-Type: application/x-www-form-urlencoded" \
-            -d "email=${{ env.DEMO_EMAIL }}&password=${{ env.DEMO_PASSWORD }}" \
-            -o /dev/null
+          echo "==> 1) STAHUJI login stránku (pro získání 'key' a počáteční cookie)…"
+          # Soubor pro počáteční cookies a HTML
+          COOKIE_INIT="cookie_init.txt"
+          LOGIN_HTML="login.html"
+          LOGIN_URL="http://localhost:33001/oauth/login2?redirect_uri=/"
 
-          # Krátké otestování, zda cookie byla uložena:
-          if [ ! -s "$COOKIE_JAR" ]; then
-            echo "❌ Chyba: Nepodařilo se uložit přihlášení do cookie_jar."
+          # 1. Stáhnout login formulář (GET) a uložit cookie_init.txt + login.html
+          curl -s -L "$LOGIN_URL" \
+            -c "$COOKIE_INIT" \
+            -o "$LOGIN_HTML"
+
+          # 2. Ze staženého HTML vyextrahovat hodnotu skrytého pole 'key'
+          echo "==> 2) EXTRAHUJI 'key' ze staženého HTML…"
+          KEY=$(grep -oP 'name="key" value="\K[^"]+' "$LOGIN_HTML" || true)
+          if [ -z "$KEY" ]; then
+            echo "❌ Chyba: Nepodařilo se najít hodnotu 'key' v $LOGIN_HTML!"
             exit 1
           fi
-          echo "✅ OAuth2 login proveden, cookie uložena do $COOKIE_JAR"
+          echo "→ Nalezen KEY: $KEY"
+
+          # 3. Provedu POST přihlášení se username, password a key; nové cookie se uloží do cookies.txt
+          echo "==> 3) POSÍLÁM POST s přihlášením (username + password + key)…"
+          COOKIE_JAR="cookies.txt"
+          curl -s -L "$LOGIN_URL" \
+            -b "$COOKIE_INIT" \
+            -c "$COOKIE_JAR" \
+            -H "Content-Type: application/x-www-form-urlencoded" \
+            -d "username=${{ env.DEMO_EMAIL }}" \
+            -d "password=${{ env.DEMO_PASSWORD }}" \
+            -d "key=${KEY}" \
+            -o /dev/null
+
+          # Ověření, že cookies.txt není prázdný
+          if [ ! -s "$COOKIE_JAR" ]; then
+            echo "❌ Chyba: Nepodařilo se uložit cookie do $COOKIE_JAR."
+            exit 1
+          fi
+
+          # Zkontrolujeme, zda cookies.txt obsahuje položku 'authorization'
+          if ! grep -iq "authorization" "$COOKIE_JAR"; then
+            echo "❌ Chyba: V $COOKIE_JAR nebyla nalezena cookie 'authorization'!"
+            echo "Podívejte se prosím do $LOGIN_HTML, zda login funguje, nebo jestli server nevrátil chybu."
+            exit 1
+          fi
+
+          echo "✅ OAuth2 login OK, cookie (authorization) uložena do $COOKIE_JAR."
         shell: bash
 
       - name: HEAD request na GraphQL endpoint s cookie
         run: |
-          echo "==> Testuji HEAD request na http://localhost:33001/api/gql s cookie…"
+          echo "==> HEAD request na http://localhost:33001/api/gql s cookie…"
           COOKIE_JAR="cookies.txt"
-          # Použijeme hlavičku Cookie pro načtení session
+
+          # HEAD (nebo GET, pokud HEAD není podporováno)
           HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:33001/api/gql \
-            -b "$COOKIE_JAR")
+            -b "$COOKIE_JAR" -X HEAD)
+
           echo "HTTP status: $HTTP_STATUS"
-          # 200 OK nebo 400/405 (Bad Request / Method Not Allowed) jsou akceptovatelná
+          # 200 OK nebo 400/405 (Bad Request / Method Not Allowed) jsou akceptovatelné
           if [[ "$HTTP_STATUS" != "200" && "$HTTP_STATUS" != "400" && "$HTTP_STATUS" != "405" ]]; then
             echo "❌ Chyba: Endpoint vrací $HTTP_STATUS místo 200/400/405."
             exit 1
@@ -80,7 +110,7 @@ jobs:
           echo "==> Provedení introspekčního dotazu na http://localhost:33001/api/gql (s cookie)…"
           COOKIE_JAR="cookies.txt"
 
-          # Introspekční query
+          # Introspekční GraphQL query
           INTROSPECTION_QUERY='{"query":"{ __schema { types { name } } }"}'
           RESPONSE=$(
             curl -s -X POST http://localhost:33001/api/gql \
@@ -97,7 +127,7 @@ jobs:
             && echo "✅ Introspection OK - nalezen klíč __schema." \
             || (echo "❌ Introspection selhala - nenalezen klíč __schema." && exit 1)
 
-          # Uložíme JSON introspekce jako výstup kroku pro další zpracování, pokud potřebujete
+          # Uložíme JSON introspekce jako výstup kroku pro případné další zpracování
           echo "::set-output name=schema::$RESPONSE"
         shell: bash
 
