@@ -127,7 +127,7 @@ jobs:
           HTTP_STATUS=$(
             curl -s -o /dev/null -w "%{http_code}" \
               -H "Authorization: Bearer $JWT_TOKEN" \
-              http://localhost:33001/api/gql -X HEAD
+              http://localhost:33001/graphiql -X HEAD
           )
           echo "HTTP status: $HTTP_STATUS"
           if [[ "$HTTP_STATUS" != "200" && "$HTTP_STATUS" != "400" && "$HTTP_STATUS" != "405" ]]; then
@@ -143,11 +143,11 @@ jobs:
         shell: bash
         run: |
           JWT_TOKEN="${{ steps.extract_jwt.outputs.jwt }}"
-          echo "==> Provedení introspekčního dotazu na /api/gql s Bearer tokenem…"
+          echo "==> Provedení introspekčního dotazu na graphiql s Bearer tokenem…"
           echo "→ (pro kontrolu) znovu JWT: $JWT_TOKEN"
           INTROSPECTION_QUERY='{"query":"{ __schema { types { name } } }"}'
           RESPONSE=$(
-            curl -s -X POST http://localhost:33001/api/gql \
+            curl -s -X POST http://localhost:33001/graphiql \
               -H "Content-Type: application/json" \
               -H "Authorization: Bearer $JWT_TOKEN" \
               -d "$INTROSPECTION_QUERY"
