@@ -9,7 +9,7 @@ on:
 
 jobs:
   python-lint:
-    name: Python Lint Checks
+    name: Flake8 linting (jen chyby “F”)
     runs-on: ubuntu-latest
 
     env:
@@ -24,12 +24,13 @@ jobs:
         with:
           python-version: "3.x"
 
-      - name: Install linting tools
+      - name: Install Flake8
         run: |
           python -m pip install --upgrade pip
           pip install flake8
 
-      - name: Flake8 linting
+      - name: Run Flake8, select only “F” error codes
         run: |
-          # Kontrola chyb ve zdrojovém i testovacím Python kódu
-          flake8 server/ tests/ || exit 1
+          # Kontrola F-kódů (např. F401 unused-import, F821 undefined-name, apod.)
+          # Ignorujeme všechny chyby E/E2/E3/W, abychom zatím neřešili formátování ani délku řádků.
+          flake8 server/ tests/ --ignore=E,E2,E3,W --select=F || exit 1
