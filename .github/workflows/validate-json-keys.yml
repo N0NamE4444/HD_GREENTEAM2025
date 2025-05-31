@@ -19,12 +19,16 @@ jobs:
         run: |
           set -euo pipefail
 
+          # Find all JSON files matching the pattern
           FILES=( systemdata*.json )
           if [ -z "${FILES[*]}" ] || [ "${FILES[0]}" = "systemdata*.json" ]; then
             echo "No files matched the pattern 'systemdata*.json'."
-            exit 1
+            # Indicate failure, but stay in this step to write summary files
+            echo "true" > anyfail.flag
+            exit 0
           fi
 
+          # Define required top-level keys (67 entries)
           REQUIRED_KEYS=(
             "rolecategories"
             "roletypes"
@@ -101,11 +105,13 @@ jobs:
           OK_FILES=()
           FAIL_FILES=()
 
+          # Ensure previous summary files are removed (if any)
+          rm -f ok.txt fail.txt anyfail.flag
+
           for FILE in "${FILES[@]}"; do
             echo "=============================================="
             echo "Checking file: $FILE"
             echo "----------------------------------------------"
-
 
             FILE_FAIL=false
 
@@ -161,31 +167,64 @@ jobs:
             echo
           done
 
-          echo "=============================================="
-          # Summary of valid and invalid files
+          # Write OK and FAIL lists to files for the summary step
           if [ "${#OK_FILES[@]}" -gt 0 ]; then
-            echo "Valid files:"
             for F in "${OK_FILES[@]}"; do
-              echo "   • $F"
+              echo "$F" >> ok.txt
             done
+          fi
+
+          if [ "${#FAIL_FILES[@]}" -gt 0 ]; then
+            for F in "${FAIL_FILES[@]}"; do
+              echo "$F" >> fail.txt
+            done
+          fi
+
+          # Write ANY_FAIL flag
+          if [ "$ANY_FAIL" = true ]; then
+            echo "true" > anyfail.flag
+          else
+            echo "false" > anyfail.flag
+          fi
+
+          # Always exit 0 so that the summary step runs
+          exit 0
+
+      - name: Summary
+        run: |
+          set -euo pipefail
+
+          echo "=============================================="
+          echo "Validation Summary"
+          echo "=============================================="
+
+          if [ -f ok.txt ] && [ -s ok.txt ]; then
+            echo "Valid files:"
+            while IFS= read -r line; do
+              echo "   • $line"
+            done < ok.txt
           else
             echo "No valid files found."
           fi
 
-          if [ "${#FAIL_FILES[@]}" -gt 0 ]; then
+          if [ -f fail.txt ] && [ -s fail.txt ]; then
+            echo
             echo "Invalid files:"
-            for F in "${FAIL_FILES[@]}"; do
-              echo "   • $F"
-            done
+            while IFS= read -r line; do
+              echo "   • $line"
+            done < fail.txt
           else
+            echo
             echo "No invalid files."
           fi
 
-          # Final exit status
-          if [ "$ANY_FAIL" = true ]; then
+          # Determine final exit code based on the flag
+          if [ -f anyfail.flag ] && grep -qx "true" anyfail.flag; then
+            echo
             echo "One or more systemdata JSON files FAILED validation."
             exit 1
           else
+            echo
             echo "All systemdata JSON files passed validation."
             exit 0
           fi
