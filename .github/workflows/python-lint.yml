@@ -1,9 +1,9 @@
 # .github/workflows/python-lint-only.yml
-name: CI – Python Lint Only
+name: CI - Python Lint Only
 
 on:
-  push:
-    branches: [ pipelines ]
+  # push:
+  #   branches: [ pipelines ]
   pull_request:
     branches: [ pipelines ]
 

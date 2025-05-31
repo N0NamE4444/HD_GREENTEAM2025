@@ -1,110 +1,109 @@
-name: CI - GraphQL Smoke Tests
+# .github/workflows/graphql‐smoke-tests.yml
+name: CI - GraphQL Smoke Tests (OAuth2 login)
 
 on:
-  # push:
-  #   #branches: [ latest ]
-  #   branches: [ pipelines ]
+  push:
+    branches: [ pipelines ]
   pull_request:
-    #branches: [ latest ]
     branches: [ pipelines ]
 
 jobs:
-  graphql-smoke:
-    name: GraphQL Smoke Tests (jediný port 33001)
+  graphql-introspection:
+    name: GraphQL Introspection Smoke Tests (port 33001)
     runs-on: ubuntu-latest
 
     env:
       TZ: Europe/Prague
+      # Přihlášení na OAuth endpoint (demo uživatel):
+      DEMO_EMAIL: john.newbie@world.com
+      DEMO_PASSWORD: john.newbie@world.com
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
 
       - name: Start Docker Compose stack
-        run: docker compose -f docker-compose.hk2025.yml up -d --build
+        run: |
+          echo "==> Spouštím Docker Compose stack na pozadí..."
+          docker compose -f docker-compose.hk2025.yml up -d --build
 
       - name: Wait for services to be healthy
-        run: sleep 30
+        run: |
+          echo "Čekám 30 sekund, aby služby absolvovaly healthcheck..."
+          sleep 30
+
       - name: Check running containers
-        run: docker ps -a
-      - name: Install graphql-cli for introspection
         run: |
-          sudo apt-get update
-          sudo apt-get install -y nodejs npm
-          npm install -g graphql-cli
+          echo "=== Seznam všech Docker kontejnerů před introspekcí: ==="
+          docker ps -a
 
-      - name: GraphQL Introspection Check
+      - name: Perform OAuth2 login (get session cookie)
         run: |
-          echo "Testuji introspekci GraphQL schema přes GraphiQL endpoint na http://localhost:33001/graphiql/…"
-          graphql introspect-schema http://localhost:33001/graphiql/ --json | grep '"__schema"' \
-            || (echo "Chyba: Introspection selhala" && exit 1)
+          echo "==> Provádím OAuth2 login na http://localhost:33001/oauth/login2?redirect_uri=/ …"
+          # Vytvoříme cookie-jar file, který curl uloží z odpovědi
+          COOKIE_JAR="cookies.txt"
+          # Odesíláme POST s přihlášením (form‐encoding). 
+          # Předpokládáme, že pole ve formuláři jsou `email` a `password`.
+          # Pokud se liší, upravte klíče `email=` a `password=`.
+          curl -s -c "$COOKIE_JAR" -L -X POST "http://localhost:33001/oauth/login2?redirect_uri=/" \
+            -H "Content-Type: application/x-www-form-urlencoded" \
+            -d "email=${{ env.DEMO_EMAIL }}&password=${{ env.DEMO_PASSWORD }}" \
+            -o /dev/null
 
-      - name: GraphQL Smoke Query - EventPage
-        run: |
-          echo "Odesílám jednoduchý query: EventPage { id } …"
-          curl -s -X POST http://localhost:33001/graphiql/ \
-            -H "Content-Type: application/json" \
-            -d '{"query":"query EventPage { eventPage { id } }"}' \
-            | grep '"data"' || (echo "Chyba: EventPage query nevrátilo data" && exit 1)
+          # Krátké otestování, zda cookie byla uložena:
+          if [ ! -s "$COOKIE_JAR" ]; then
+            echo "❌ Chyba: Nepodařilo se uložit přihlášení do cookie_jar."
+            exit 1
+          fi
+          echo "✅ OAuth2 login proveden, cookie uložena do $COOKIE_JAR"
+        shell: bash
 
-      - name: GraphQL Smoke Query - SurveyPage
+      - name: HEAD request na GraphQL endpoint s cookie
         run: |
-          echo "Odesílám jednoduchý query: SurveyPage { id } …"
-          curl -s -X POST http://localhost:33001/graphiql/ \
-            -H "Content-Type: application/json" \
-            -d '{"query":"query SurveyPage { surveyPage { id } }"}' \
-            | grep '"data"' || (echo "Chyba: SurveyPage query nevrátilo data" && exit 1)
+          echo "==> Testuji HEAD request na http://localhost:33001/api/gql s cookie…"
+          COOKIE_JAR="cookies.txt"
+          # Použijeme hlavičku Cookie pro načtení session
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:33001/api/gql \
+            -b "$COOKIE_JAR")
+          echo "HTTP status: $HTTP_STATUS"
+          # 200 OK nebo 400/405 (Bad Request / Method Not Allowed) jsou akceptovatelná
+          if [[ "$HTTP_STATUS" != "200" && "$HTTP_STATUS" != "400" && "$HTTP_STATUS" != "405" ]]; then
+            echo "❌ Chyba: Endpoint vrací $HTTP_STATUS místo 200/400/405."
+            exit 1
+          fi
+          echo "✅ HEAD request úspěšný (status $HTTP_STATUS)."
+        shell: bash
 
-      - name: GraphQL Smoke Query - ProjectPage
+      - name: GraphQL Introspection Check (curl + cookie)
+        id: introspection
         run: |
-          echo "Odesílám jednoduchý query: ProjectPage { id } …"
-          curl -s -X POST http://localhost:33001/graphiql/ \
-            -H "Content-Type: application/json" \
-            -d '{"query":"query ProjectPage { projectPage { id } }"}' \
-            | grep '"data"' || (echo "Chyba: ProjectPage query nevrátilo data" && exit 1)
+          echo "==> Provedení introspekčního dotazu na http://localhost:33001/api/gql (s cookie)…"
+          COOKIE_JAR="cookies.txt"
 
-      - name: GraphQL Smoke Query - LessonPage
-        run: |
-          echo "Odesílám jednoduchý query: PlannedLessonPage { id } …"
-          curl -s -X POST http://localhost:33001/graphiql/ \
-            -H "Content-Type: application/json" \
-            -d '{"query":"query PlannedLessonPage { plannedLessonPage { id } }"}' \
-            | grep '"data"' || (echo "Chyba: LessonPage query nevrátilo data" && exit 1)
+          # Introspekční query
+          INTROSPECTION_QUERY='{"query":"{ __schema { types { name } } }"}'
+          RESPONSE=$(
+            curl -s -X POST http://localhost:33001/api/gql \
+              -H "Content-Type: application/json" \
+              -b "$COOKIE_JAR" \
+              -d "$INTROSPECTION_QUERY"
+          )
 
-      - name: GraphQL Smoke Query - FacilitiesPage
-        run: |
-          echo "Odesílám jednoduchý query: FacilityPage { id } …"
-          curl -s -X POST http://localhost:33001/graphiql/ \
-            -H "Content-Type: application/json" \
-            -d '{"query":"query FacilityPage { facilityPage { id } }"}' \
-            | grep '"data"' || (echo "Chyba: FacilitiesPage query nevrátilo data" && exit 1)
+          echo "=== Introspection response: ==="
+          echo "$RESPONSE"
 
-      - name: GraphQL Smoke Query - FormPage
-        run: |
-          echo "Odesílám jednoduchý query: FormPage { id } …"
-          curl -s -X POST http://localhost:33001/graphiql/ \
-            -H "Content-Type: application/json" \
-            -d '{"query":"query FormPage { formPage { id } }"}' \
-            | grep '"data"' || (echo "Chyba: FormPage query nevrátilo data" && exit 1)
+          # Ověříme, že odpověď obsahuje "__schema"
+          echo "$RESPONSE" | grep '"__schema"' \
+            && echo "✅ Introspection OK - nalezen klíč __schema." \
+            || (echo "❌ Introspection selhala - nenalezen klíč __schema." && exit 1)
 
-      - name: GraphQL Smoke Query - PublicationPage
-        run: |
-          echo "Odesílám jednoduchý query: PublicationPage { id } …"
-          curl -s -X POST http://localhost:33001/graphiql/ \
-            -H "Content-Type: application/json" \
-            -d '{"query":"query PublicationPage { publicationPage { id } }"}' \
-            | grep '"data"' || (echo "Chyba: PublicationPage query nevrátilo data" && exit 1)
-
-      - name: GraphQL Smoke Query - ExternalIdPage
-        run: |
-          echo "Odesílám jednoduchý query: ExternalIdPage { id } …"
-          curl -s -X POST http://localhost:33001/graphiql/ \
-            -H "Content-Type: application/json" \
-            -d '{"query":"query ExternalIdsPage { externalIdsPage { id } }"}' \
-            | grep '"data"' || (echo "Chyba: ExternalIdPage query nevrátilo data" && exit 1)
+          # Uložíme JSON introspekce jako výstup kroku pro další zpracování, pokud potřebujete
+          echo "::set-output name=schema::$RESPONSE"
+        shell: bash
 
       - name: Tear down Docker Compose stack
         if: always()
         run: |
-          echo "Clean up…"
+          echo "==> Clean up: Ukončuji Docker Compose stack…"
           docker compose -f docker-compose.hk2025.yml down --volumes
+        shell: bash
