@@ -1,5 +1,5 @@
 # .github/workflows/graphql‐graphiql-smoke‐tests.yml
-name: CI – GraphiQL Smoke Test (OAuth2 login → GET /graphiql)
+name: CI - GraphiQL Smoke Test (OAuth2 login → GET /graphiql)
 
 on:
   push:
@@ -71,7 +71,7 @@ jobs:
           KEY=$(grep -oP 'name="key".*?value=\K[^ >]+' "$LOGIN_HTML" || true)
           if [ -z "$KEY" ]; then
             echo "❌ Chyba: Nepodařilo se najít hodnotu 'key' v $LOGIN_HTML!"
-            echo "– Níže celý login.html pro debug:"
+            echo "- Níže celý login.html pro debug:"
             cat "$LOGIN_HTML"
             exit 1
           fi
@@ -117,9 +117,10 @@ jobs:
       # Krok 2: Ověřím, že GET /graphiql/ vrátí 200 OK (pomocí uložené cookie)
       ######################################################################
       - name: Smoke test GraphiQL UI (GET /graphiql)
+        id: graphiql_ui_test
         shell: bash
+        # Přeneste hodnotu z předchozího kroku
         env:
-          # Přeneste hodnotu z předchozího kroku
           AUTHORIZATION: ${{ steps.login_step.outputs.AUTHORIZATION }}
         run: |
           echo "==> 2) GET /graphiql/ s cookie authorization…"
@@ -128,20 +129,20 @@ jobs:
             exit 1
           fi
 
-          # Provedeme GET a zkontrolujeme stav (200) a přítomnost textu "<title>GraphiQL</title>"
+          # Provedeme GET a zkontrolujeme stav (200) a přítomnost textu "GraphiQL" v HTML
           RESPONSE_HTTP_CODE=$(
             curl -s -o /dev/null -w "%{http_code}" \
               -H "Cookie: authorization=${AUTHORIZATION}" \
               http://localhost:33001/graphiql/
           )
-          echo "HTTP status: $RESPONSE_HTTP_CODE"
+          echo "→ HTTP status: $RESPONSE_HTTP_CODE"
           if [ "$RESPONSE_HTTP_CODE" != "200" ]; then
             echo "❌ Chyba: /graphiql/ vrací HTTP $RESPONSE_HTTP_CODE namísto 200."
             exit 1
           fi
-          echo "✅ HTTP 200 OK – GraphiQL endpoint dostupný."
+          echo "✅ HTTP 200 OK - GraphiQL endpoint dostupný."
 
-          # Teď se podíváme na část HTML, abychom viděli, že obsahuje "<title>GraphiQL</title>"
+          # Nyní se podíváme na část HTML, abychom viděli, že obsahuje "GraphiQL"
           BODY=$(curl -s \
             -H "Cookie: authorization=${AUTHORIZATION}" \
             http://localhost:33001/graphiql/ \
@@ -150,53 +151,60 @@ jobs:
           echo "${BODY:0:200}" | sed 's/<[^>]*>/ /g'
           echo "…"
 
-          # Ověříme, že stránka skutečně obsahuje GraphiQL UI (např. hledáním “GraphiQL” v HTML)
+          # Ovĕříme, že stránka skutečně obsahuje GraphiQL UI (hledáme “GraphiQL” v HTML)
           echo "$BODY" | grep -i "GraphiQL" \
             && echo "✅ Stránka obsahuje 'GraphiQL'." \
             || (echo "❌ Stránka neobsahuje 'GraphiQL'." && exit 1)
+      
 
-      - name: Smoke test GraphiQL UI (GET /graphiql/)
-        id: graphql_ui_test
+      ######################################################################
+      # Krok 3: Introspekční query (cookie + XSRF) -> /api/gql
+      ######################################################################
+      - name: Introspect GraphQL Schema (POST /api/gql)
+        id: introspect_schema
         shell: bash
-        # Přeneste si sem tu hodnotu cookie z předchozího kroku
         env:
           AUTHORIZATION: ${{ steps.login_step.outputs.AUTHORIZATION }}
         run: |
-          echo "==> 1) Kontroluji, že AUTHORIZATION cookie není prázdná…"
+          echo "==> 3) Provedu introspekční dotaz na /api/gql s cookie + XSRF…"
+          # 1) Nejdřív ověříme, že máme token
           if [ -z "${AUTHORIZATION}" ]; then
-            echo "❌ Chyba: proměnná AUTHORIZATION je prázdná. Login selhal nebo cookie nebyla nastavena."
+            echo "❌ Chyba: AUTHORIZATION cookie je prázdná!"
             exit 1
           fi
-          echo "→ Používám hodnotu AUTHORIZATION cookie: ${AUTHORIZATION:0:20}… (zkráceno)"
 
-          echo "==> 2) Provedu GET http://localhost:33001/graphiql/ s Cookie: authorization=${AUTHORIZATION}"
-          # Nejprve zjistíme pouze HTTP kód (např. 200)
-          HTTP_CODE=$(
-            curl -s -o /dev/null -w "%{http_code}" \
-              -H "Cookie: authorization=${AUTHORIZATION}" \
-              http://localhost:33001/graphiql/
-          )
-          echo "→ HTTP status: $HTTP_CODE"
-          if [ "$HTTP_CODE" != "200" ]; then
-            echo "❌ Chyba: /graphiql/ vrací HTTP $HTTP_CODE namísto 200."
+          # 2) Z cookies_auth.txt vyextrahujeme _xsrf token
+          XSRF_TOKEN=$(grep -i "_xsrf" cookies_auth.txt | awk '{print $7}' | head -n 1 || true)
+          if [ -z "${XSRF_TOKEN}" ]; then
+            echo "❌ Chyba: Nebyl nalezen _xsrf token v cookies_auth.txt"
             exit 1
           fi
-          echo "✅ HTTP 200 OK – GraphiQL endpoint je dostupný."
+          echo "→ Extrahovaný XSRF_TOKEN: ${XSRF_TOKEN:0:20}… (zkráceno)"
 
-          # Nyní zkusíme stáhnout malou část HTML a ověřit, že opravdu je tam titul 'Strawberry GraphiQL'
-          BODY=$(curl -s \
-            -H "Cookie: authorization=${AUTHORIZATION}" \
-            http://localhost:33001/graphiql/ \
+          # 3) Definice introspekčního GraphQL dotazu
+          INTROSPECTION_QUERY='{ "query": "{ __schema { types { name } } }" }'
+
+          # 4) Pošleme POST na /api/gql s oběma hlavičkami: 
+          #    - Cookie: authorization=<JWT>
+          #    - X-XSRFToken: <_xsrf>
+          #    Uložíme odpověď do proměnné RESPONSE
+          RESPONSE=$(
+            curl -s -X POST http://localhost:33001/api/gql \
+              -H "Content-Type: application/json" \
+              -H "Cookie: authorization=${AUTHORIZATION}; _xsrf=${XSRF_TOKEN}" \
+              -H "X-XSRFToken: ${XSRF_TOKEN}" \
+              --data "$INTROSPECTION_QUERY" \
+            || true
           )
-          echo "→ Výřez z HTML (prvních 200 znaků):"
-          echo "${BODY:0:200}" | sed 's/<[^>]*>/ /g'  # odstraníme tagy, abychom viděli čistý text
 
-          echo "==> 3) Ověřuji, že stránka opravdu obsahuje 'Strawberry GraphiQL'…"
-          echo "$BODY" | grep -q "Strawberry GraphiQL" \
-            && echo "✅ Stránka obsahuje 'Strawberry GraphiQL'." \
-            || (echo "❌ Stránka neobsahuje titulku 'Strawberry GraphiQL'." && exit 1)
+          echo "=== Introspection response: ==="
+          echo "$RESPONSE" | head -n 50
+          echo "…"
 
-          echo "🎉 GraphiQL smoke test je úspěšný."
+          # 5) Zkontrolujeme, že JSON obsahuje "__schema"
+          echo "$RESPONSE" | grep '"__schema"' \
+            && echo "✅ Introspection OK - našel jsem __schema." \
+            || (echo "❌ Introspection selhala - nenalezen __schema." && exit 1)
 
       ########################################################################
       # Krok 4: Tear down Docker Compose
