@@ -1,110 +1,380 @@
-name: CI - GraphQL Smoke Tests
+name: CI - GraphiQL Smoke Test (OAuth2 login, GET /graphiql)
 
 on:
-  # push:
-  #   #branches: [ latest ]
-  #   branches: [ pipelines ]
-  pull_request:
-    #branches: [ latest ]
+  push:
     branches: [ pipelines ]
+    #branches: [ latest ]
+  pull_request:
+    branches: [ pipelines ]
+    #branches: [ latest ]
 
 jobs:
-  graphql-smoke:
-    name: GraphQL Smoke Tests (jediný port 33001)
+  graphiqlsmoke:
+    name: Build, Login & Check /graphiql
     runs-on: ubuntu-latest
 
     env:
       TZ: Europe/Prague
+      DEMO_EMAIL: john.newbie@world.com
+      DEMO_PASSWORD: john.newbie@world.com
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
 
       - name: Start Docker Compose stack
-        run: docker compose -f docker-compose.hk2025.yml up -d --build
+        shell: bash
+        run: |
+          echo "==> Starting Docker Compose stack in the background…"
+          docker compose -f docker-compose.hk2025.yml up -d --build
 
       - name: Wait for services to be healthy
-        run: sleep 30
+        shell: bash
+        run: |
+          echo "Waiting 90 seconds for services to initialize…"
+          sleep 90
+
       - name: Check running containers
-        run: docker ps -a
-      - name: Install graphql-cli for introspection
+        shell: bash
         run: |
-          sudo apt-get update
-          sudo apt-get install -y nodejs npm
-          npm install -g graphql-cli
+          echo "=== List all Docker containers before tests: ==="
+          docker ps -a
 
-      - name: GraphQL Introspection Check
+      - name: Perform OAuth2 login and save authorization cookie
+        id: login_step
+        shell: bash
         run: |
-          echo "Testuji introspekci GraphQL schema přes GraphiQL endpoint na http://localhost:33001/graphiql/…"
-          graphql introspect-schema http://localhost:33001/graphiql/ --json | grep '"__schema"' \
-            || (echo "Chyba: Introspection selhala" && exit 1)
+          echo "==> 1) Downloading login page to obtain 'key' and initial cookie…"
+          COOKIE_INIT="cookies_init.txt"
+          LOGIN_HTML="login.html"
+          LOGIN_URL="http://localhost:33001/oauth/login2?redirect_uri=/"
 
-      - name: GraphQL Smoke Query - EventPage
+          curl -s -L "$LOGIN_URL" \
+            -c "$COOKIE_INIT" \
+            -o "$LOGIN_HTML"
+
+          echo "→ Contents of login.html (first 20 lines):"
+          head -n 20 "$LOGIN_HTML" || true
+          echo "…"
+
+          echo "==> 2) Extracting 'key' from downloaded HTML…"
+          KEY=$(grep -oP 'name="key".*?value=\K[^ >]+' "$LOGIN_HTML" || true)
+          if [ -z "$KEY" ]; then
+            echo "Error: Failed to find 'key' value in $LOGIN_HTML!"
+            echo "- Entire login.html for debugging:"
+            cat "$LOGIN_HTML"
+            exit 1
+          fi
+          echo "→ Found KEY: $KEY"
+
+          echo "==> 3) Sending POST to log in (username + password + key)…"
+          COOKIE_AUTH="cookies_auth.txt"
+          curl -s -L "$LOGIN_URL" \
+            -b "$COOKIE_INIT" \
+            -c "$COOKIE_AUTH" \
+            -H "Content-Type: application/x-www-form-urlencoded" \
+            -d "username=${DEMO_EMAIL}" \
+            -d "password=${DEMO_PASSWORD}" \
+            -d "key=${KEY}" \
+            -o /dev/null
+
+          if [ ! -s "$COOKIE_AUTH" ]; then
+            echo "Error: Failed to save cookie into $COOKIE_AUTH."
+            ls -l "$COOKIE_AUTH" || true
+            exit 1
+          fi
+
+          echo "→ Contents of cookies_auth.txt:"
+          cat "$COOKIE_AUTH"
+
+          JWT_COOKIE=$(grep -i "authorization" "$COOKIE_AUTH" | awk '{print $7}' | head -n 1 || true)
+          if [ -z "$JWT_COOKIE" ]; then
+            echo "Error: 'authorization' cookie not found in cookie jar!"
+            exit 1
+          fi
+
+          echo "→ Extracted authorization cookie value: $JWT_COOKIE"
+          echo "AUTHORIZATION=$JWT_COOKIE" >> "$GITHUB_OUTPUT"
+          echo "OAuth2 login succeeded, authorization cookie saved."
+
+      - name: Smoke test GraphiQL UI (GET /graphiql)
+        id: graphiql_ui_test
+        shell: bash
+        env:
+          AUTHORIZATION: ${{ steps.login_step.outputs.AUTHORIZATION }}
         run: |
-          echo "Odesílám jednoduchý query: EventPage { id } …"
-          curl -s -X POST http://localhost:33001/graphiql/ \
+          echo "==> 2) GET /graphiql/ with authorization cookie…"
+          if [ -z "${AUTHORIZATION}" ]; then
+            echo "Error: AUTHORIZATION variable is empty! (login failed or cookie not set)"
+            exit 1
+          fi
+
+          RESPONSE_HTTP_CODE=$(
+            curl -s -o /dev/null -w "%{http_code}" \
+              -H "Cookie: authorization=${AUTHORIZATION}" \
+              http://localhost:33001/graphiql/
+          )
+          echo "→ HTTP status: $RESPONSE_HTTP_CODE"
+          if [ "$RESPONSE_HTTP_CODE" != "200" ]; then
+            echo "Error: /graphiql/ returned HTTP $RESPONSE_HTTP_CODE instead of 200."
+            exit 1
+          fi
+          echo "HTTP 200 OK - GraphiQL endpoint is available."
+
+          BODY=$(curl -s \
+            -H "Cookie: authorization=${AUTHORIZATION}" \
+            http://localhost:33001/graphiql/ \
+          )
+          echo "→ Snippet of GraphiQL HTML (first 200 characters):"
+          echo "${BODY:0:200}" | sed 's/<[^>]*>/ /g'
+          echo "…"
+
+          echo "$BODY" | grep -i "GraphiQL" \
+            && echo "Page contains 'GraphiQL'." \
+            || (echo "Page does not contain 'GraphiQL'." && exit 1)
+
+      - name: Pre-flight checks for GraphQL endpoint
+        id: preflight_checks
+        shell: bash
+        env:
+          AUTHORIZATION: ${{ steps.login_step.outputs.AUTHORIZATION }}
+        run: |
+          echo "==> Pre-flight checks before GraphQL query…"
+          if [ -z "${AUTHORIZATION}" ]; then
+            echo "Error: AUTHORIZATION cookie is empty!"
+            exit 1
+          fi
+          echo "→ Authorization cookie is available: ${AUTHORIZATION:0:20}..."
+
+          echo "==> Testing GET /api/gql (should return 405 Method Not Allowed)…"
+          GET_STATUS=$(curl -s -w "%{http_code}" -o /dev/null \
+            -H "Cookie: authorization=${AUTHORIZATION}" \
+            http://localhost:33001/api/gql)
+          echo "→ GET /api/gql HTTP Status: $GET_STATUS"
+
+          echo "==> Testing POST /api/gql without data…"
+          NO_DATA_STATUS=$(curl -s -w "%{http_code}" -o empty_post.txt -X POST \
             -H "Content-Type: application/json" \
-            -d '{"query":"query EventPage { eventPage { id } }"}' \
-            | grep '"data"' || (echo "Chyba: EventPage query nevrátilo data" && exit 1)
+            -H "Cookie: authorization=${AUTHORIZATION}" \
+            http://localhost:33001/api/gql)
+          echo "→ POST without data HTTP Status: $NO_DATA_STATUS"
+          echo "→ Response:"
+          cat empty_post.txt 2>/dev/null || echo "No response"
 
-      - name: GraphQL Smoke Query - SurveyPage
-        run: |
-          echo "Odesílám jednoduchý query: SurveyPage { id } …"
-          curl -s -X POST http://localhost:33001/graphiql/ \
-            -H "Content-Type: application/json" \
-            -d '{"query":"query SurveyPage { surveyPage { id } }"}' \
-            | grep '"data"' || (echo "Chyba: SurveyPage query nevrátilo data" && exit 1)
+          echo "==> Docker logs for GraphQL service debug…"
+          docker compose -f docker-compose.hk2025.yml logs --tail=20 || true
 
-      - name: GraphQL Smoke Query - ProjectPage
+      - name: Introspect GraphQL Schema (POST /api/gql)
+        id: introspect_schema
+        shell: bash
+        env:
+          AUTHORIZATION: ${{ steps.login_step.outputs.AUTHORIZATION }}
         run: |
-          echo "Odesílám jednoduchý query: ProjectPage { id } …"
-          curl -s -X POST http://localhost:33001/graphiql/ \
-            -H "Content-Type: application/json" \
-            -d '{"query":"query ProjectPage { projectPage { id } }"}' \
-            | grep '"data"' || (echo "Chyba: ProjectPage query nevrátilo data" && exit 1)
+          echo "==> 3) Sending introspection query to /api/gql with cookie authorization…"
+          if [ -z "${AUTHORIZATION}" ]; then
+            echo "Error: AUTHORIZATION cookie is empty!"
+            exit 1
+          fi
 
-      - name: GraphQL Smoke Query - LessonPage
-        run: |
-          echo "Odesílám jednoduchý query: PlannedLessonPage { id } …"
-          curl -s -X POST http://localhost:33001/graphiql/ \
-            -H "Content-Type: application/json" \
-            -d '{"query":"query PlannedLessonPage { plannedLessonPage { id } }"}' \
-            | grep '"data"' || (echo "Chyba: LessonPage query nevrátilo data" && exit 1)
+          echo "==> Trying a simple GraphQL query first…"
+          SIMPLE_QUERY='{"query":"query { __typename }"}'
 
-      - name: GraphQL Smoke Query - FacilitiesPage
-        run: |
-          echo "Odesílám jednoduchý query: FacilityPage { id } …"
-          curl -s -X POST http://localhost:33001/graphiql/ \
+          SIMPLE_STATUS=$(curl -s -w "%{http_code}" -o simple_response.json -X POST \
+            http://localhost:33001/api/gql \
             -H "Content-Type: application/json" \
-            -d '{"query":"query FacilityPage { facilityPage { id } }"}' \
-            | grep '"data"' || (echo "Chyba: FacilitiesPage query nevrátilo data" && exit 1)
+            -H "Cookie: authorization=${AUTHORIZATION}" \
+            --data "$SIMPLE_QUERY")
 
-      - name: GraphQL Smoke Query - FormPage
-        run: |
-          echo "Odesílám jednoduchý query: FormPage { id } …"
-          curl -s -X POST http://localhost:33001/graphiql/ \
-            -H "Content-Type: application/json" \
-            -d '{"query":"query FormPage { formPage { id } }"}' \
-            | grep '"data"' || (echo "Chyba: FormPage query nevrátilo data" && exit 1)
+          echo "→ Simple query HTTP Status: $SIMPLE_STATUS"
+          echo "→ Simple query response:"
+          cat simple_response.json 2>/dev/null || echo "No response"
 
-      - name: GraphQL Smoke Query - PublicationPage
-        run: |
-          echo "Odesílám jednoduchý query: PublicationPage { id } …"
-          curl -s -X POST http://localhost:33001/graphiql/ \
-            -H "Content-Type: application/json" \
-            -d '{"query":"query PublicationPage { publicationPage { id } }"}' \
-            | grep '"data"' || (echo "Chyba: PublicationPage query nevrátilo data" && exit 1)
+          if [ "$SIMPLE_STATUS" != "200" ]; then
+            echo "Even simple GraphQL query failed with HTTP $SIMPLE_STATUS"
+            echo "=== Docker logs for debug ==="
+            docker compose -f docker-compose.hk2025.yml logs --tail=50 || true
+            echo "=== End of logs ==="
+            exit 1
+          fi
 
-      - name: GraphQL Smoke Query - ExternalIdPage
-        run: |
-          echo "Odesílám jednoduchý query: ExternalIdPage { id } …"
-          curl -s -X POST http://localhost:33001/graphiql/ \
+          echo "==> Simple query succeeded, now trying introspection…"
+          INTROSPECTION_QUERY='{"query":"{ __schema { types { name } } }"}'
+
+          echo "→ Query: $INTROSPECTION_QUERY"
+          echo "→ Cookie: authorization=${AUTHORIZATION:0:50}..."
+
+          HTTP_STATUS=$(curl -v -w "%{http_code}" -o response.json -X POST \
+            http://localhost:33001/api/gql \
             -H "Content-Type: application/json" \
-            -d '{"query":"query ExternalIdsPage { externalIdsPage { id } }"}' \
-            | grep '"data"' || (echo "Chyba: ExternalIdPage query nevrátilo data" && exit 1)
+            -H "Cookie: authorization=${AUTHORIZATION}" \
+            --data "$INTROSPECTION_QUERY" 2>curl_debug.log)
+
+          echo "→ HTTP Status: $HTTP_STATUS"
+
+          echo "=== Curl debug info ==="
+          cat curl_debug.log || true
+          echo "=== End of curl debug ==="
+
+          if [ "$HTTP_STATUS" != "200" ]; then
+            echo "Error: GraphQL endpoint returned HTTP $HTTP_STATUS instead of 200."
+            echo "Response body:"
+            cat response.json 2>/dev/null || echo "Cannot read response.json"
+            echo "=== Docker logs after error ==="
+            docker compose -f docker-compose.hk2025.yml logs --tail=30 || true
+            echo "=== End of logs ==="
+            exit 1
+          fi
+
+          echo "=== GraphQL Response (first 500 characters): ==="
+          head -c 500 response.json 2>/dev/null || echo "Cannot read response.json"
+          echo
+          echo "==="
+
+          if [ ! -s response.json ]; then
+            echo "Error: Response is empty or missing!"
+            exit 1
+          fi
+
+          if command -v jq >/dev/null 2>&1; then
+            echo "→ Using jq to parse JSON..."
+            SCHEMA_FOUND=$(jq -r '.data.__schema' response.json 2>/dev/null || echo "null")
+            if [ "$SCHEMA_FOUND" != "null" ] && [ "$SCHEMA_FOUND" != "" ]; then
+              echo "Introspection OK - found __schema using jq."
+            else
+              echo "Introspection failed - __schema not found in JSON structure."
+              echo "Full response:"
+              cat response.json
+              exit 1
+            fi
+          else
+            echo "→ jq not available, using grep..."
+            if grep -q '"__schema"' response.json; then
+              echo "Introspection OK - found __schema using grep."
+            else
+              echo "Introspection failed - __schema not found in response."
+              echo "Full response:"
+              cat response.json
+              exit 1
+            fi
+          fi
+
+          if command -v jq >/dev/null 2>&1; then
+            TYPE_COUNT=$(jq -r '.data.__schema.types | length' response.json 2>/dev/null || echo "0")
+            echo "→ Number of types in schema: $TYPE_COUNT"
+            if [ "$TYPE_COUNT" -gt "0" ]; then
+              echo "Schema contains $TYPE_COUNT types."
+            else
+              echo "⚠️  Warning: Schema contains no types or cannot parse."
+            fi
+          fi
+
+      - name: GraphQL Smoke Query - EventPage { id }
+        id: query_eventPage
+        shell: bash
+        env:
+          AUTHORIZATION: ${{ steps.login_step.outputs.AUTHORIZATION }}
+        run: |
+          echo "Sending simple query: EventPage { id } to /api/gql …"
+          curl -s -X POST http://localhost:33001/api/gql \
+            -H "Content-Type: application/json" \
+            -H "Cookie: authorization=${AUTHORIZATION}" \
+            --data '{"query":"query EventPage { eventPage { id } }"}' 2>curl_debug.log \
+            | grep '"data"' || (echo "Error: EventPage query did not return data" && cat curl_debug.log && exit 1)
+
+      - name: GraphQL Smoke Query - SurveyPage { id }
+        id: query_surveyPage
+        shell: bash
+        env:
+          AUTHORIZATION: ${{ steps.login_step.outputs.AUTHORIZATION }}
+        run: |
+          echo "Sending simple query: SurveyPage { id } to /api/gql …"
+          curl -s -X POST http://localhost:33001/api/gql \
+            -H "Content-Type: application/json" \
+            -H "Cookie: authorization=${AUTHORIZATION}" \
+            --data '{"query":"query SurveyPage { surveyPage { id } }"}' 2>curl_debug.log \
+            | grep '"data"' || (echo "Error: SurveyPage query did not return data" && cat curl_debug.log && exit 1)
+
+      - name: GraphQL Smoke Query - ProjectPage { id }
+        id: query_projectPage
+        shell: bash
+        env:
+          AUTHORIZATION: ${{ steps.login_step.outputs.AUTHORIZATION }}
+        run: |
+          echo "Sending simple query: ProjectPage { id } to /api/gql …"
+          curl -s -X POST http://localhost:33001/api/gql \
+            -H "Content-Type: application/json" \
+            -H "Cookie: authorization=${AUTHORIZATION}" \
+            --data '{"query":"query ProjectPage { projectPage { id } }"}' 2>curl_debug.log \
+            | grep '"data"' || (echo "Error: ProjectPage query did not return data" && cat curl_debug.log && exit 1)
+
+      - name: GraphQL Smoke Query - PlannedLessonPage { id }
+        id: query_plannedLessonPage
+        shell: bash
+        env:
+          AUTHORIZATION: ${{ steps.login_step.outputs.AUTHORIZATION }}
+        run: |
+          echo "Sending simple query: PlannedLessonPage { id } to /api/gql …"
+          curl -s -X POST http://localhost:33001/api/gql \
+            -H "Content-Type: application/json" \
+            -H "Cookie: authorization=${AUTHORIZATION}" \
+            --data '{"query":"query PlannedLessonPage { plannedLessonPage { id } }"}' 2>curl_debug.log \
+            | grep '"data"' || (echo "Error: PlannedLessonPage query did not return data" && cat curl_debug.log && exit 1)
+
+      - name: GraphQL Smoke Query - FacilityPage { id }
+        id: query_facilityPage
+        shell: bash
+        env:
+          AUTHORIZATION: ${{ steps.login_step.outputs.AUTHORIZATION }}
+        run: |
+          echo "Sending simple query: FacilityPage { id } to /api/gql …"
+          curl -s -X POST http://localhost:33001/api/gql \
+            -H "Content-Type: application/json" \
+            -H "Cookie: authorization=${AUTHORIZATION}" \
+            --data '{"query":"query FacilityPage { facilityPage { id } }"}' 2>curl_debug.log \
+            | grep '"data"' || (echo "Error: FacilityPage query did not return data" && cat curl_debug.log && exit 1)
+
+      - name: GraphQL Smoke Query - FormPage { id }
+        id: query_formPage
+        shell: bash
+        env:
+          AUTHORIZATION: ${{ steps.login_step.outputs.AUTHORIZATION }}
+        run: |
+          echo "Sending simple query: FormPage { id } to /api/gql …"
+          curl -s -X POST http://localhost:33001/api/gql \
+            -H "Content-Type: application/json" \
+            -H "Cookie: authorization=${AUTHORIZATION}" \
+            --data '{"query":"query FormPage { formPage { id } }"}' 2>curl_debug.log \
+            | grep '"data"' || (echo "Error: FormPage query did not return data" && cat curl_debug.log && exit 1)
+
+      - name: GraphQL Smoke Query - PublicationPage { id }
+        id: query_publicationPage
+        shell: bash
+        env:
+          AUTHORIZATION: ${{ steps.login_step.outputs.AUTHORIZATION }}
+        run: |
+          echo "Sending simple query: PublicationPage { id } to /api/gql …"
+          curl -s -X POST http://localhost:33001/api/gql \
+            -H "Content-Type: application/json" \
+            -H "Cookie: authorization=${AUTHORIZATION}" \
+            --data '{"query":"query PublicationPage { publicationPage { id } }"}' 2>curl_debug.log \
+            | grep '"data"' || (echo "Error: PublicationPage query did not return data" && cat curl_debug.log && exit 1)
+
+      - name: GraphQL Smoke Query - ExternalIdsPage { id }
+        id: query_externalIdsPage
+        shell: bash
+        env:
+          AUTHORIZATION: ${{ steps.login_step.outputs.AUTHORIZATION }}
+        run: |
+          echo "Sending simple query: ExternalIdsPage { id } to /api/gql …"
+          curl -s -X POST http://localhost:33001/api/gql \
+            -H "Content-Type: application/json" \
+            -H "Cookie: authorization=${AUTHORIZATION}" \
+            --data '{"query":"query ExternalIdsPage { externalIdsPage { id } }"}' 2>curl_debug.log \
+            | grep '"data"' || (echo "Error: ExternalIdsPage query did not return data" && cat curl_debug.log && exit 1)
 
       - name: Tear down Docker Compose stack
         if: always()
+        shell: bash
         run: |
-          echo "Clean up…"
+          echo "==> Cleaning up: Bringing down Docker Compose stack…"
           docker compose -f docker-compose.hk2025.yml down --volumes
