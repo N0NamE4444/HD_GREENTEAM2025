@@ -2,9 +2,11 @@ name: CI - GraphQL Smoke Tests
 
 on:
   push:
-    branches: [ main ]
+    #branches: [ latest ]
+    branches: [ pipelines ]
   pull_request:
-    branches: [ main ]
+    #branches: [ latest ]
+    branches: [ pipelines ]
 
 jobs:
   graphql-smoke:
