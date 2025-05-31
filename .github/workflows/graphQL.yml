@@ -145,26 +145,27 @@ jobs:
       ########################################################################
       # Krok 3: GraphQL Introspection Query s cookie authorization=<JWT>
       ########################################################################
-      - name: Perform GraphQL Introspection Query (using GitHub Secrets)
+      - name: Perform GraphQL Introspection Query (JWT v cookie + X-XSRFToken)
         shell: bash
         env:
+          # Načteme hodnoty z GitHub Secrets, v logu se ale objeví jen ***
           XSRF_TOKEN: ${{ secrets._XSRF }}
-          AUTH_TOKEN: ${{ secrets.AUTHORIZATION }}
+          JWT_TOKEN:   ${{ secrets.AUTHORIZATION }}
         run: |
-          echo "==> Provedení introspekčního dotazu na /api/gql s cookie‐based auth ze Secretů…"
-          # GH Actions automaticky zamaskuje hodnoty, takže je v logu neuvidíte v plain textu
-          echo "→ (debug) XSRF_TOKEN: $XSRF_TOKEN"
-          echo "→ (debug) AUTH_TOKEN: ***"
+          echo "==> Provádím introspekční dotaz na /api/gql (JWT v cookie + X-XSRFToken)…"
+          echo "→ (debug) XSRF_TOKEN = $XSRF_TOKEN"
+          echo "→ (debug) JWT_TOKEN = ***"
 
-          # Definice introspekčního dotazu
+          # Definice GraphQL introspekčního dotazu (validní JSON)
           INTROSPECTION_QUERY='{ "query": "{ __schema { types { name } } }" }'
 
-          # Odešleme oba cookie najednou: _xsrf + authorization
-          # Navíc pro jistotu přihodíme X-XSRFToken hlavičku (některé backendy ji vyžadují)
+          # Odešleme požadavek s oběma hodnotami:
+          #  - JWT do cookie: authorization=<JWT_TOKEN>
+          #  - CSRF token do hlavičky: X-XSRFToken=<XSRF_TOKEN>
           RESPONSE=$(
             curl -v -X POST http://localhost:33001/api/gql \
               -H "Content-Type: application/json" \
-              -H "Cookie: _xsrf=$XSRF_TOKEN; authorization=$AUTH_TOKEN" \
+              -H "Cookie: authorization=$JWT_TOKEN" \
               -H "X-XSRFToken: $XSRF_TOKEN" \
               --data "$INTROSPECTION_QUERY" \
             || true
@@ -173,10 +174,10 @@ jobs:
           echo "=== Introspection response: ==="
           echo "$RESPONSE"
 
-          # Ověříme, že odpověď obsahuje "__schema"
+          # Zkontrolujeme, že JSON obsahuje "__schema"
           echo "$RESPONSE" | grep '"__schema"' \
-            && echo "✅ Introspection OK – nalezen klíč __schema." \
-            || (echo "❌ Introspection selhala – nenalezen klíč __schema." && exit 1)
+            && echo "✅ Introspection OK – našel jsem __schema." \
+            || (echo "❌ Introspection selhala – nenalezen __schema." && exit 1)
 
       ########################################################################
       # Krok 4: Tear down Docker Compose
