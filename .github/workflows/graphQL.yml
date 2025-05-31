@@ -1,0 +1,122 @@
+name: CI - GraphQL Smoke Tests
+
+on:
+  push:
+    branches: [ pipelines ]
+  pull_request:
+    branches: [ pipelines ]
+
+jobs:
+  graphql-introspection:
+    name: GraphQL Introspection Smoke Tests (port 33001)
+    runs-on: ubuntu-latest
+
+    env:
+      TZ: Europe/Prague
+      # Pokud endpoint vyžaduje osobní přístupový token (PAT), můžete ho uložit jako secret:
+      # GQL_AUTH_TOKEN: ${{ secrets.GQL_AUTH_TOKEN }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        # Zkontroluje repozitář do runneru, aby byly dostupné Docker Compose soubory a kód. :contentReference[oaicite:0]{index=0}
+
+      - name: Start Docker Compose stack
+        run: |
+          echo "==> Spouštím Docker Compose stack na pozadí..."
+          docker compose -f docker-compose.hk2025.yml up -d --build
+        # Spustí všechny služby definované v docker-compose.hk2025.yml v detached režimu. :contentReference[oaicite:1]{index=1}
+
+      - name: Wait for services to be healthy
+        run: |
+          echo "Čekám 30 sekund, aby služby absolvovaly healthcheck..."
+          sleep 30
+        # Dá backendu, Apollo Gateway a dalším podsystémům čas na inicializaci a nastavení connectionů. :contentReference[oaicite:2]{index=2}
+
+      - name: Check running containers
+        run: |
+          echo "=== Seznam všech Docker kontejnerů před introspekcí: ==="
+          docker ps -a
+        # Pro debug vypíše jména, stavy a porty všech běžících kontejnerů. :contentReference[oaicite:3]{index=3}
+
+      - name: Obtain JWT token via login mutation
+        id: get_token
+        run: |
+          echo "==> Provádím GraphQL login mutation pro získání JWT tokenu…"
+          
+          # Sestavíme JSON pro login mutaci; zde používáme výchozí demo účet:
+          LOGIN_MUTATION_JSON=$(
+            printf '{
+            "query":"mutation { login(email:\"john.newbie@world.com\", password:\"john.newbie@world.com\") { token } }"
+            }'
+          )
+
+          # Odešleme POST /api/gql a uložíme odpověď do proměnné:
+          LOGIN_RESPONSE=$(
+            curl -s -X POST http://localhost:33001/api/gql \
+              -H "Content-Type: application/json" \
+              -d "$LOGIN_MUTATION_JSON"
+          )
+          echo "Login response: $LOGIN_RESPONSE"
+          # Extrahujeme token (řetězec JWT) pomocí grep + sed/regex:
+          TOKEN=$(echo "$LOGIN_RESPONSE" | grep -oP '(?<="token":")[^"]+')
+          if [ -z "$TOKEN" ]; then
+            echo "❌ Chyba: Nepodařilo se načíst token z login mutace."
+            exit 1
+          fi
+          echo "✅ Získaný token: $TOKEN"
+
+          # Uložíme do workflow výstupu kroku (abychom ho mohli používat dál):
+          echo "::set-output name=jwt::$TOKEN"
+        shell: bash
+        # Tento krok provede autentizaci přes veřejné demo GraphQL API a vrátí JWT. :contentReference[oaicite:4]{index=4}
+
+      - name: HEAD request na GraphQL endpoint s tokenem
+        run: |
+          echo "==> Testuji HEAD request na http://localhost:33001/api/gql s autorizací…"
+          curl -v -I http://localhost:33001/api/gql \
+            -H "Authorization: Bearer ${{ steps.get_token.outputs.jwt }}" || true
+        shell: bash
+        # Ověří, že endpoint vrací HTTP 200 (ne 302 na login). :contentReference[oaicite:5]{index=5}
+
+      - name: GraphQL Introspection Check (curl + token)
+        id: introspection
+        run: |
+          echo "==> Provedení introspekčního dotazu na http://localhost:33001/api/gql …"
+
+          INTROSPECTION_QUERY='{"query":"{ __schema { types { name } } }"}'
+          RESPONSE=$(
+            curl -s -X POST http://localhost:33001/api/gql \
+              -H "Content-Type: application/json" \
+              -H "Authorization: Bearer ${{ steps.get_token.outputs.jwt }}" \
+              -d "$INTROSPECTION_QUERY"
+          )
+          echo "=== Introspection response: ==="
+          echo "$RESPONSE"
+
+          # Ověříme, že JSON obsahuje __schema
+          echo "$RESPONSE" | grep '"__schema"' \
+            && echo "✅ Introspection OK - nalezen klíč __schema." \
+            || (echo "❌ Introspection selhala - nenalezen klíč __schema." && exit 1)
+
+          # Uložíme výsledek jako výstup kroku pro možný další zpracování:
+          echo "::set-output name=schema::$RESPONSE"
+        shell: bash
+        # Tento krok spustí čistý introspekční query a kontroluje, zda odpověď obsahuje "__schema". :contentReference[oaicite:6]{index=6}
+
+      - name: Upload introspection.json as artifact
+        if: success()
+        uses: actions/upload-artifact@v3
+        with:
+          name: graphql-introspection-schema
+          path: |
+            <(echo "${{ steps.introspection.outputs.schema }}")
+        # Tento krok uloží JSON introspekce jako artefakt CI, aby se dal stáhnout z GitHub Actions UI. :contentReference[oaicite:7]{index=7}
+
+      - name: Tear down Docker Compose stack
+        if: always()
+        run: |
+          echo "==> Clean up: Ukončuji Docker Compose stack…"
+          docker compose -f docker-compose.hk2025.yml down --volumes
+        shell: bash
+        # Na závěr bezpečně ukončí všechny kontejnery a smaže volumes, aby runner zůstal čistý. :contentReference[oaicite:8]{index=8}

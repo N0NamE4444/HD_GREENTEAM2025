@@ -1,0 +1,184 @@
+# .github/workflows/ci-infra-lint.yml
+name: CI – Infra, Docker, Prometheus, Terraform & Python Lint Checks
+
+on:
+  push:
+    branches: [ main, pipelines ]
+  pull_request:
+    branches: [ main, pipelines ]
+
+jobs:
+  infra-and-lint:
+    name: Infra & Lint Checks
+    runs-on: ubuntu-latest
+
+    env:
+      TZ: Europe/Prague
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      ########################################################################
+      # 1) Python Lint / Formatting Checks
+      ########################################################################
+      - name: Set up Python 3.x
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.x"
+
+      - name: Install Python dev dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements-dev.txt ]; then
+            pip install -r requirements-dev.txt
+          fi
+
+      - name: Run Black & isort checks
+        run: |
+          # Pokud chcete změnit cesty k Python kódu, upravte tyto cesty
+          black --check server/ || exit 1
+          isort --check-only server/ || exit 1
+
+      - name: Run Flake8 linting
+        run: |
+          # Kontrola chyb ve zdrojovém i testovacím Python kódu
+          flake8 server/ tests/ || exit 1
+
+      ########################################################################
+      # 2) Docker Smoke Tests
+      ########################################################################
+      - name: Build Docker image with Dockerfile
+        run: |
+          # Cílíme na kořenový Dockerfile; upravte cestu, pokud to není v /
+          echo "Building Docker image from Dockerfile..."
+          docker build -t app:test . || exit 1
+
+      - name: Run container and check port listening
+        run: |
+          # Spustíme kontejner na portu 8000 (přizpůsobte port, pokud server naslouchá jinak)
+          CONTAINER_ID=$(docker run -d -p 8000:8000 --name test_build app:test)
+          echo "Started container $CONTAINER_ID, waiting 10s for it to initialize..."
+          sleep 10
+          echo "=== Seznam všech kontejnerů po docker run ==="
+          docker ps -a
+          echo "Curl test: HTTP HEAD na http://localhost:8000"
+          if curl -s -f -I http://localhost:8000; then
+            echo "Port 8000 je dostupný."
+          else
+            echo "CHYBA: Port 8000 neposlouchá nebo server nespadl."
+            docker logs "$CONTAINER_ID"
+            docker rm -f "$CONTAINER_ID"
+            exit 1
+          fi
+          echo "Stopping and removing test_build container..."
+          docker rm -f "$CONTAINER_ID"
+
+      ########################################################################
+      # 3) Docker Compose Smoke Tests for Various Compose Files
+      ########################################################################
+      - name: Docker Compose Smoke Test – hk2025
+        run: |
+          echo "=== Docker Compose Smoke Test: docker-compose.hk2025.yml ==="
+          docker compose -f docker-compose.hk2025.yml up -d --build
+          sleep 20
+          echo "=== Seznam kontejnerů (hk2025) ==="
+          docker ps -a
+          docker compose -f docker-compose.hk2025.yml down --volumes
+
+      - name: Docker Compose Smoke Test – deploy
+        run: |
+          echo "=== Docker Compose Smoke Test: docker-compose.deploy.yml ==="
+          docker compose -f docker-compose.deploy.yml up -d --build
+          sleep 20
+          echo "=== Seznam kontejnerů (deploy) ==="
+          docker ps -a
+          docker compose -f docker-compose.deploy.yml down --volumes
+
+      - name: Docker Compose Smoke Test – apollo
+        run: |
+          echo "=== Docker Compose Smoke Test: docker-compose.apollo.yml ==="
+          docker compose -f docker-compose.apollo.yml up -d --build
+          sleep 20
+          echo "=== Seznam kontejnerů (apollo) ==="
+          docker ps -a
+          docker compose -f docker-compose.apollo.yml down --volumes
+
+      - name: Docker Compose Smoke Test – data
+        run: |
+          echo "=== Docker Compose Smoke Test: docker-compose.data.yml ==="
+          docker compose -f docker-compose.data.yml up -d --build
+          sleep 20
+          echo "=== Seznam kontejnerů (data) ==="
+          docker ps -a
+          docker compose -f docker-compose.data.yml down --volumes
+
+      ########################################################################
+      # 4) Prometheus & Monitoring Config Tests
+      ########################################################################
+      - name: Install promtool
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y prometheus || exit 1
+          promtool --version
+
+      - name: Check Prometheus configuration
+        run: |
+          echo "=== Validace prometheus/prometheus.yml ==="
+          promtool check config prometheus/prometheus.yml || exit 1
+
+      - name: Check Prometheus alerting rules
+        run: |
+          echo "=== Validace všech alertovacích pravidel (.rules.yml) v /prometheus/ ==="
+          for RULE in prometheus/*.rules.yml; do
+            promtool check rules "$RULE" || exit 1
+          done
+
+      - name: (Optional) Run Prometheus container and test /metrics
+        run: |
+          if [ -f docker-compose-prometheus.yml ]; then
+            echo "=== Spuštění Prometheusu pro smoketest ==="
+            docker compose -f docker-compose-prometheus.yml up -d
+            sleep 20
+            echo "=== Kontrola endpointu /metrics ==="
+            if curl -s -f http://localhost:9090/metrics >/dev/null; then
+              echo "Prometheus /metrics OK"
+            else
+              echo "CHYBA: Prometheus /metrics nevrátil 200"
+              docker compose -f docker-compose-prometheus.yml logs
+              docker compose -f docker-compose-prometheus.yml down --volumes
+              exit 1
+            fi
+            docker compose -f docker-compose-prometheus.yml down --volumes
+          else
+            echo "Nepřítomen docker-compose-prometheus.yml, přeskočeno."
+          fi
+
+      ########################################################################
+      # 5) Terraform Infrastructure-as-Code Tests
+      ########################################################################
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: 1.5.0
+
+      - name: Terraform fmt & validate
+        working-directory: ./terraform
+        run: |
+          terraform fmt -check
+          terraform init -backend=false
+          terraform validate
+
+      - name: Terraform plan (dry-run)
+        working-directory: ./terraform
+        run: |
+          terraform plan -input=false -out=plan.out
+
+      ########################################################################
+      # 6) List Docker Containers Before Exit
+      ########################################################################
+      - name: Final docker ps -a
+        if: always()
+        run: |
+          echo "=== KONEČNÝ výpis všech Docker kontejnerů ==="
+          docker ps -a
