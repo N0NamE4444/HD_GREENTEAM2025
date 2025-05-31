@@ -150,13 +150,17 @@ jobs:
         run: |
           JWT_TOKEN="${{ steps.login_step.outputs.jwt }}"
           echo "==> Provedení introspekčního dotazu na /api/gql s cookie auth…"
+          echo "→ (debug) použiji EXATNĚ tuto proměnnou: $JWT_TOKEN"
+
+          # Zde DEFINUJEME query v proměnné
           INTROSPECTION_QUERY='{ "query": "{ __schema { types { name } } }" }'
 
+          # A teprve teď ji pošleme přímo přes proměnnou
           RESPONSE=$(
-            curl -s -X POST http://localhost:33001/api/gql \
+            curl -v -X POST http://localhost:33001/api/gql \
               -H "Content-Type: application/json" \
               -H "Cookie: authorization=$JWT_TOKEN" \
-              --data '{ "query": "{ __schema { types { name } } }" }' \
+              --data "$INTROSPECTION_QUERY" \
               || true
           )
 
