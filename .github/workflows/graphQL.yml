@@ -160,7 +160,7 @@ jobs:
             curl -v -X POST http://localhost:33001/api/gql \
               -H "Content-Type: application/json" \
               -b "cookies_auth.txt" \
-              --data "$INTROSPECTION_QUERY"
+              --data "$INTROSPECTION_QUERY" \
               || true
           )
 
