@@ -8,15 +8,17 @@ on:
     branches: [ pipelines ]
 
 jobs:
-  graphql-introspection:
-    name: GraphQL Introspection Smoke Tests (port 33001)
+  get-jwt:
+    name: Get JWT Token
     runs-on: ubuntu-latest
 
     env:
       TZ: Europe/Prague
-      # Přihlašovací údaje: demo uživatel
       DEMO_EMAIL: john.newbie@world.com
       DEMO_PASSWORD: john.newbie@world.com
+
+    outputs:
+      jwt: ${{ steps.extract_jwt.outputs.jwt }}
 
     steps:
       - name: Checkout repository
@@ -32,15 +34,10 @@ jobs:
           echo "Čekám 30 sekund, aby služby absolvovaly healthcheck..."
           sleep 30
 
-      - name: Check running containers
-        run: |
-          echo "=== Seznam všech Docker kontejnerů před introspekcí: ==="
-          docker ps -a
-
-      - name: Perform OAuth2 login (get session cookie)
+      - name: Perform OAuth2 login (get session cookie and extract JWT)
+        id: extract_jwt
         run: |
           echo "==> 1) STAHUJI login stránku (pro získání 'key' a počáteční cookie)…"
-          # Soubor pro počáteční cookies a HTML
           COOKIE_INIT="cookie_init.txt"
           LOGIN_HTML="login.html"
           LOGIN_URL="http://localhost:33001/oauth/login2?redirect_uri=/"
@@ -59,8 +56,8 @@ jobs:
           fi
           echo "→ Nalezen KEY: $KEY"
 
-          # 3. Provedu POST přihlášení se username, password a key; nové cookie se uloží do cookies.txt
-          echo "==> 3) POSÍLÁM POST s přihlášením (username + password + key)…"
+          # 3. Provedu POST přihlášení (username + password + key); nové cookie se uloží do cookies.txt
+          echo "==> 3) POSÍLÁM POST s přihlášením…"
           COOKIE_JAR="cookies.txt"
           curl -s -L "$LOGIN_URL" \
             -b "$COOKIE_INIT" \
@@ -77,59 +74,82 @@ jobs:
             exit 1
           fi
 
-          # Zkontrolujeme, zda cookies.txt obsahuje položku 'authorization'
-          if ! grep -iq "authorization" "$COOKIE_JAR"; then
-            echo "❌ Chyba: V $COOKIE_JAR nebyla nalezena cookie 'authorization'!"
-            echo "Podívejte se prosím do $LOGIN_HTML, zda login funguje, nebo jestli server nevrátil chybu."
+          # 4. Extrahovat JWT z cookie 'authorization'
+          JWT=$(grep -i -E "localhost.*authorization" "$COOKIE_JAR" | awk '{print $7}')
+          if [ -z "$JWT" ]; then
+            echo "❌ Chyba: V cookie-jar nebyla nalezena hodnota 'authorization'!"
             exit 1
           fi
 
-          echo "✅ OAuth2 login OK, cookie (authorization) uložena do $COOKIE_JAR."
+          # Uložit JWT jako výstup kroku
+          echo "jwt=$JWT" >> $GITHUB_OUTPUT
+          echo "✅ JWT token úspěšně získán a uložen jako job output."
         shell: bash
 
-      - name: HEAD request na GraphQL endpoint s cookie
+      - name: Tear down Docker Compose stack
+        if: always()
         run: |
-          echo "==> HEAD request na http://localhost:33001/api/gql s cookie…"
-          COOKIE_JAR="cookies.txt"
+          echo "==> Clean up: Ukončuji Docker Compose stack…"
+          docker compose -f docker-compose.hk2025.yml down --volumes
+        shell: bash
 
-          # HEAD (nebo GET, pokud HEAD není podporováno)
-          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:33001/api/gql \
-            -b "$COOKIE_JAR" -X HEAD)
+  introspection:
+    name: GraphQL Introspection (using stored JWT)
+    runs-on: ubuntu-latest
+    needs: [get-jwt]
 
+    env:
+      TZ: Europe/Prague
+      JWT_TOKEN: ${{ needs.get-jwt.outputs.jwt }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Start Docker Compose stack
+        run: |
+          echo "==> Spouštím Docker Compose stack na pozadí..."
+          docker compose -f docker-compose.hk2025.yml up -d --build
+
+      - name: Wait for services to be healthy
+        run: |
+          echo "Čekám 30 sekund, aby služby absolvovaly healthcheck..."
+          sleep 30
+
+      - name: HEAD request on GraphQL endpoint with Bearer token
+        run: |
+          echo "Používám JWT: $JWT_TOKEN"
+          HTTP_STATUS=$(
+            curl -s -o /dev/null -w "%{http_code}" \
+              -H "Authorization: Bearer $JWT_TOKEN" \
+              http://localhost:33001/api/gql -X HEAD
+          )
           echo "HTTP status: $HTTP_STATUS"
-          # 200 OK nebo 400/405 (Bad Request / Method Not Allowed) jsou akceptovatelné
           if [[ "$HTTP_STATUS" != "200" && "$HTTP_STATUS" != "400" && "$HTTP_STATUS" != "405" ]]; then
-            echo "❌ Chyba: Endpoint vrací $HTTP_STATUS místo 200/400/405."
+            echo "❌ Neočekávaný status $HTTP_STATUS"
             exit 1
           fi
           echo "✅ HEAD request úspěšný (status $HTTP_STATUS)."
         shell: bash
 
-      - name: GraphQL Introspection Check (curl + cookie)
-        id: introspection
+      - name: Perform GraphQL Introspection Query
+        id: introspect
         run: |
-          echo "==> Provedení introspekčního dotazu na http://localhost:33001/api/gql (s cookie)…"
-          COOKIE_JAR="cookies.txt"
-
-          # Introspekční GraphQL query
+          echo "==> Provedení introspekčního dotazu na /api/gql s Bearer tokenem…"
           INTROSPECTION_QUERY='{"query":"{ __schema { types { name } } }"}'
           RESPONSE=$(
             curl -s -X POST http://localhost:33001/api/gql \
               -H "Content-Type: application/json" \
-              -b "$COOKIE_JAR" \
+              -H "Authorization: Bearer $JWT_TOKEN" \
               -d "$INTROSPECTION_QUERY"
           )
 
           echo "=== Introspection response: ==="
           echo "$RESPONSE"
 
-          # Ověříme, že odpověď obsahuje "__schema"
           echo "$RESPONSE" | grep '"__schema"' \
             && echo "✅ Introspection OK - nalezen klíč __schema." \
             || (echo "❌ Introspection selhala - nenalezen klíč __schema." && exit 1)
-
-          # Uložíme JSON introspekce jako výstup kroku pro případné další zpracování
-          echo "::set-output name=schema::$RESPONSE"
         shell: bash
 
       - name: Tear down Docker Compose stack
