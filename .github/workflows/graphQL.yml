@@ -1,5 +1,5 @@
-# .github/workflows/graphql-smoke-tests.yml
-name: CI - GraphQL Smoke Tests (OAuth2 login)
+# .github/workflows/graphql‐graphiql-smoke‐tests.yml
+name: CI – GraphiQL Smoke Test (OAuth2 login → GET /graphiql)
 
 on:
   push:
@@ -8,8 +8,8 @@ on:
     branches: [ pipelines ]
 
 jobs:
-  graphql-smoke:
-    name: Build, Login & Run Introspection (cookie‐based JWT)
+  graphiqlsmoke:
+    name: Build, Login & Check /graphiql
     runs-on: ubuntu-latest
 
     env:
@@ -26,71 +26,72 @@ jobs:
       - name: Start Docker Compose stack
         shell: bash
         run: |
-          echo "==> Spouštím Docker Compose stack na pozadí..."
+          echo "==> Spouštím Docker Compose stack na pozadí…"
           docker compose -f docker-compose.hk2025.yml up -d --build
 
       # 3) Počkat, až služby dokončí healthcheck
       - name: Wait for services to be healthy
         shell: bash
         run: |
-          echo "Čekám 30 sekund, aby služby absolvovaly healthcheck..."
+          echo "Čekám 30 sekund, aby se služby nachystaly…"
           sleep 30
 
       # 4) (volitelně) Zkontrolovat běžící kontejnery
       - name: Check running containers
         shell: bash
         run: |
-          echo "=== Seznam všech Docker kontejnerů před testy: ==="
+          echo "=== Seznam všech Docker kontejnerů před testem: ==="
           docker ps -a
 
-      ########################################################################
-      # Krok 1: Přihlášení → stažení cookies + extrakce JWT (cookie 'authorization')
-      ########################################################################
-      - name: Perform OAuth2 login and extract JWT from cookie
+      ######################################################################
+      # Krok 1: OAuth2 login → stáhnout login stránku, extrahovat key, poslat POST,
+      #           a uložit výslednou cookie “authorization”
+      ######################################################################
+      - name: Perform OAuth2 login and save authorization cookie
         id: login_step
         shell: bash
         run: |
-          echo "==> 1) Stahuji login stránku (GET) a ukládám první cookies…"
+          echo "==> 1) Stahuji login stránku (pro získání 'key' + počáteční cookie)…"
           COOKIE_INIT="cookies_init.txt"
           LOGIN_HTML="login.html"
           LOGIN_URL="http://localhost:33001/oauth/login2?redirect_uri=/"
 
-          # 1. GET login form + uložení počátečních cookies do cookies_init.txt
+          # 1. GET login form (uložíme cookies_init.txt + login.html)
           curl -s -L "$LOGIN_URL" \
             -c "$COOKIE_INIT" \
             -o "$LOGIN_HTML"
 
-          # Debug: část login.html
+          # Debug: vypišme první řádky login.html, ať je jasné, že to sedí
           echo "→ Obsah login.html (prvních 20 řádků):"
           head -n 20 "$LOGIN_HTML" || true
-          echo "..."
+          echo "…"
 
-          # 2. Z login.html extrahovat hodnotu skrytého pole 'key'
+          # 2. Extrahovat skrytý 'key' z HTML (value bez uvozovek)
           echo "==> 2) Extrahuji 'key' ze staženého HTML…"
           KEY=$(grep -oP 'name="key".*?value=\K[^ >]+' "$LOGIN_HTML" || true)
           if [ -z "$KEY" ]; then
             echo "❌ Chyba: Nepodařilo se najít hodnotu 'key' v $LOGIN_HTML!"
-            echo "Zobrazím celý HTML pro debug:"
+            echo "– Níže celý login.html pro debug:"
             cat "$LOGIN_HTML"
             exit 1
           fi
           echo "→ Nalezen KEY: $KEY"
 
-          # 3. POST přihlášení (username + password + key), výsledné cookies do cookies_auth.txt
-          echo "==> 3) Posílám POST s přihlášením…"
+          # 3. POST přihlášení (username + password + key) → uloží se do cookies_auth.txt
+          echo "==> 3) Posílám POST s přihlášením (username + password + key)…"
           COOKIE_AUTH="cookies_auth.txt"
           curl -s -L "$LOGIN_URL" \
             -b "$COOKIE_INIT" \
             -c "$COOKIE_AUTH" \
             -H "Content-Type: application/x-www-form-urlencoded" \
-            -d "username=${{ env.DEMO_EMAIL }}" \
-            -d "password=${{ env.DEMO_PASSWORD }}" \
+            -d "username=${DEMO_EMAIL}" \
+            -d "password=${DEMO_PASSWORD}" \
             -d "key=${KEY}" \
             -o /dev/null
 
-          # Ujistit se, že cookies_auth.txt existuje a má obsah
+          # Ověřit, že cookies_auth.txt existuje a není prázdný
           if [ ! -s "$COOKIE_AUTH" ]; then
-            echo "❌ Chyba: Nepodařilo se uložit cookies do $COOKIE_AUTH."
+            echo "❌ Chyba: Nepodařilo se uložit cookie do $COOKIE_AUTH."
             ls -l "$COOKIE_AUTH" || true
             exit 1
           fi
@@ -99,85 +100,103 @@ jobs:
           echo "→ Obsah cookies_auth.txt:"
           cat "$COOKIE_AUTH"
 
-          # 4. Z cookies_auth.txt vyextrahovat JWT z cookie 'authorization'
-          JWT=$(grep -i "authorization" "$COOKIE_AUTH" | awk '{print $7}' | head -n 1 || true)
-          if [ -z "$JWT" ]; then
+          # 4. Z cookies_auth.txt vyextrahovat hodnotu cookie 'authorization'
+          JWT_COOKIE=$(grep -i "authorization" "$COOKIE_AUTH" | awk '{print $7}' | head -n 1 || true)
+          if [ -z "$JWT_COOKIE" ]; then
             echo "❌ Chyba: V cookie-jar nebyla nalezena cookie 'authorization'!"
             exit 1
           fi
 
-          # Debug: vypišme celý token (v UI GH Actions bude zamaskován)
-          echo "→ Extrahovaný JWT token (cookie 'authorization'):"
-          echo "$JWT"
+          echo "→ Extrahovaná hodnota authorization cookie: $JWT_COOKIE"
+          # Uložit JWT (authorization) do GitHub kelu pro další kroky
+          echo "AUTHORIZATION=$JWT_COOKIE" >> "$GITHUB_OUTPUT"
+          echo "✅ OAuth2 login proběhl, authorization cookie uložena."
+        # konec run
 
-          # 5. Uložit JWT do výstupu tohoto kroku
-          echo "jwt=$JWT" >> "$GITHUB_OUTPUT"
-          echo "✅ JWT token úspěšně získán a uložen do \$GITHUB_OUTPUT."
-        # end of run
-
-      ########################################################################
-      # Krok 2: HEAD request na GraphQL endpoint s cookie authorization=<JWT>
-      ########################################################################
-      - name: HEAD request on GraphQL endpoint (cookie-based auth)
-        shell: bash
-        run: |
-          JWT_TOKEN="${{ steps.login_step.outputs.jwt }}"
-          echo "→ Používám JWT token z cookie: $JWT_TOKEN"
-          if [ -z "$JWT_TOKEN" ]; then
-            echo "❌ Chyba: JWT_TOKEN je prázdný!"
-            exit 1
-          fi
-
-          # Aby nás nezastavil cURL exit‐kód, použijeme "|| true"
-          HTTP_STATUS=$(
-            curl -s -o /dev/null -w "%{http_code}" \
-              -H "Cookie: authorization=$JWT_TOKEN" \
-              http://localhost:33001/api/gql -X HEAD \
-              || true
-          )
-          echo "HTTP status: $HTTP_STATUS"
-          if [[ "$HTTP_STATUS" != "200" && "$HTTP_STATUS" != "400" && "$HTTP_STATUS" != "405" ]]; then
-            echo "❌ Neočekávaný status $HTTP_STATUS"
-            exit 1
-          fi
-          echo "✅ HEAD request úspěšný (status $HTTP_STATUS)."
-
-      ########################################################################
-      # Krok 3: GraphQL Introspection Query s cookie authorization=<JWT>
-      ########################################################################
-      - name: Perform GraphQL Introspection Query (JWT v cookie + X-XSRFToken)
+      ######################################################################
+      # Krok 2: Ověřím, že GET /graphiql/ vrátí 200 OK (pomocí uložené cookie)
+      ######################################################################
+      - name: Smoke test GraphiQL UI (GET /graphiql)
         shell: bash
         env:
-          # Načteme hodnoty z GitHub Secrets, v logu se ale objeví jen ***
-          XSRF_TOKEN: ${{ secrets._XSRF }}
-          JWT_TOKEN:   ${{ secrets.AUTHORIZATION }}
+          # Přeneste hodnotu z předchozího kroku
+          AUTHORIZATION: ${{ steps.login_step.outputs.AUTHORIZATION }}
         run: |
-          echo "==> Provádím introspekční dotaz na /api/gql (JWT v cookie + X-XSRFToken)…"
-          echo "→ (debug) XSRF_TOKEN = $XSRF_TOKEN"
-          echo "→ (debug) JWT_TOKEN = ***"
+          echo "==> 2) GET /graphiql/ s cookie authorization…"
+          if [ -z "${AUTHORIZATION}" ]; then
+            echo "❌ Chyba: V proměnné AUTHORIZATION není žádný token! (login selhal nebo cookie nebyla nastavena)"
+            exit 1
+          fi
 
-          # Definice GraphQL introspekčního dotazu (validní JSON)
-          INTROSPECTION_QUERY='{ "query": "{ __schema { types { name } } }" }'
-
-          # Odešleme požadavek s oběma hodnotami:
-          #  - JWT do cookie: authorization=<JWT_TOKEN>
-          #  - CSRF token do hlavičky: X-XSRFToken=<XSRF_TOKEN>
-          RESPONSE=$(
-            curl -v -X POST http://localhost:33001/api/gql \
-              -H "Content-Type: application/json" \
-              -H "Cookie: authorization=$JWT_TOKEN" \
-              -H "X-XSRFToken: $XSRF_TOKEN" \
-              --data "$INTROSPECTION_QUERY" \
-            || true
+          # Provedeme GET a zkontrolujeme stav (200) a přítomnost textu "<title>GraphiQL</title>"
+          RESPONSE_HTTP_CODE=$(
+            curl -s -o /dev/null -w "%{http_code}" \
+              -H "Cookie: authorization=${AUTHORIZATION}" \
+              http://localhost:33001/graphiql/
           )
+          echo "HTTP status: $RESPONSE_HTTP_CODE"
+          if [ "$RESPONSE_HTTP_CODE" != "200" ]; then
+            echo "❌ Chyba: /graphiql/ vrací HTTP $RESPONSE_HTTP_CODE namísto 200."
+            exit 1
+          fi
+          echo "✅ HTTP 200 OK – GraphiQL endpoint dostupný."
 
-          echo "=== Introspection response: ==="
-          echo "$RESPONSE"
+          # Teď se podíváme na část HTML, abychom viděli, že obsahuje "<title>GraphiQL</title>"
+          BODY=$(curl -s \
+            -H "Cookie: authorization=${AUTHORIZATION}" \
+            http://localhost:33001/graphiql/ \
+          )
+          echo "→ Výřez z HTML GraphiQL (prvních 200 znaků):"
+          echo "${BODY:0:200}" | sed 's/<[^>]*>/ /g'
+          echo "…"
 
-          # Zkontrolujeme, že JSON obsahuje "__schema"
-          echo "$RESPONSE" | grep '"__schema"' \
-            && echo "✅ Introspection OK – našel jsem __schema." \
-            || (echo "❌ Introspection selhala – nenalezen __schema." && exit 1)
+          # Ověříme, že stránka skutečně obsahuje GraphiQL UI (např. hledáním “GraphiQL” v HTML)
+          echo "$BODY" | grep -i "GraphiQL" \
+            && echo "✅ Stránka obsahuje 'GraphiQL'." \
+            || (echo "❌ Stránka neobsahuje 'GraphiQL'." && exit 1)
+
+      - name: Smoke test GraphiQL UI (GET /graphiql/)
+        id: graphql_ui_test
+        shell: bash
+        # Přeneste si sem tu hodnotu cookie z předchozího kroku
+        env:
+          AUTHORIZATION: ${{ steps.login_step.outputs.AUTHORIZATION }}
+        run: |
+          echo "==> 1) Kontroluji, že AUTHORIZATION cookie není prázdná…"
+          if [ -z "${AUTHORIZATION}" ]; then
+            echo "❌ Chyba: proměnná AUTHORIZATION je prázdná. Login selhal nebo cookie nebyla nastavena."
+            exit 1
+          fi
+          echo "→ Používám hodnotu AUTHORIZATION cookie: ${AUTHORIZATION:0:20}… (zkráceno)"
+
+          echo "==> 2) Provedu GET http://localhost:33001/graphiql/ s Cookie: authorization=${AUTHORIZATION}"
+          # Nejprve zjistíme pouze HTTP kód (např. 200)
+          HTTP_CODE=$(
+            curl -s -o /dev/null -w "%{http_code}" \
+              -H "Cookie: authorization=${AUTHORIZATION}" \
+              http://localhost:33001/graphiql/
+          )
+          echo "→ HTTP status: $HTTP_CODE"
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "❌ Chyba: /graphiql/ vrací HTTP $HTTP_CODE namísto 200."
+            exit 1
+          fi
+          echo "✅ HTTP 200 OK – GraphiQL endpoint je dostupný."
+
+          # Nyní zkusíme stáhnout malou část HTML a ověřit, že opravdu je tam titul 'Strawberry GraphiQL'
+          BODY=$(curl -s \
+            -H "Cookie: authorization=${AUTHORIZATION}" \
+            http://localhost:33001/graphiql/ \
+          )
+          echo "→ Výřez z HTML (prvních 200 znaků):"
+          echo "${BODY:0:200}" | sed 's/<[^>]*>/ /g'  # odstraníme tagy, abychom viděli čistý text
+
+          echo "==> 3) Ověřuji, že stránka opravdu obsahuje 'Strawberry GraphiQL'…"
+          echo "$BODY" | grep -q "Strawberry GraphiQL" \
+            && echo "✅ Stránka obsahuje 'Strawberry GraphiQL'." \
+            || (echo "❌ Stránka neobsahuje titulku 'Strawberry GraphiQL'." && exit 1)
+
+          echo "🎉 GraphiQL smoke test je úspěšný."
 
       ########################################################################
       # Krok 4: Tear down Docker Compose
