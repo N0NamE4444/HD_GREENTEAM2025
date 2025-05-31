@@ -17,6 +17,8 @@ jobs:
       DEMO_EMAIL: john.newbie@world.com
       DEMO_PASSWORD: john.newbie@world.com
 
+    # Zde deklarujeme, že tento job bude mít output s názvem 'jwt',
+    # na který v druhém jobu odkážeme jako needs.get-jwt.outputs.jwt
     outputs:
       jwt: ${{ steps.extract_jwt.outputs.jwt }}
 
@@ -36,27 +38,35 @@ jobs:
 
       - name: Perform OAuth2 login (get session cookie and extract JWT)
         id: extract_jwt
+        shell: bash
         run: |
           echo "==> 1) STAHUJI login stránku (pro získání 'key' a počáteční cookie)…"
           COOKIE_INIT="cookie_init.txt"
           LOGIN_HTML="login.html"
           LOGIN_URL="http://localhost:33001/oauth/login2?redirect_uri=/"
 
-          # 1. Stáhnout login formulář (GET) a uložit cookie_init.txt + login.html
+          # 1. Stáhnout login formulář (GET)
           curl -s -L "$LOGIN_URL" \
             -c "$COOKIE_INIT" \
             -o "$LOGIN_HTML"
 
-          # 2. Ze staženého HTML vyextrahovat hodnotu skrytého pole 'key'
+          # Pro debug: ukažme prvních pár řádků login.html, abychom ověřili, že jsme stáhli správný HTML.
+          echo "→ Obsah login.html (prvních 20 řádků):"
+          head -n 20 "$LOGIN_HTML" || true
+          echo "..."
+
+          # 2. Extrahovat hodnotu 'key' z HTML (value není v uvozovkách)
           echo "==> 2) EXTRAHUJI 'key' ze staženého HTML…"
           KEY=$(grep -oP 'name="key".*?value=\K[^ >]+' "$LOGIN_HTML" || true)
           if [ -z "$KEY" ]; then
             echo "❌ Chyba: Nepodařilo se najít hodnotu 'key' v $LOGIN_HTML!"
+            echo "Ukažme celý HTML (kvůli ladění):"
+            cat "$LOGIN_HTML"
             exit 1
           fi
           echo "→ Nalezen KEY: $KEY"
 
-          # 3. Provedu POST přihlášení (username + password + key); nové cookie se uloží do cookies.txt
+          # 3. POST přihlášení (username + password + key) → uloží se do cookies.txt
           echo "==> 3) POSÍLÁM POST s přihlášením…"
           COOKIE_JAR="cookies.txt"
           curl -s -L "$LOGIN_URL" \
@@ -68,30 +78,40 @@ jobs:
             -d "key=${KEY}" \
             -o /dev/null
 
-          # Ověření, že cookies.txt není prázdný
+          # Ověření, že cookies.txt existuje a není prázdný
           if [ ! -s "$COOKIE_JAR" ]; then
             echo "❌ Chyba: Nepodařilo se uložit cookie do $COOKIE_JAR."
+            # Pro debug: vypišme chybový stav
+            ls -l "$COOKIE_JAR" || true
             exit 1
           fi
 
-          # 4. Extrahovat JWT z cookie 'authorization'
-          JWT=$(grep -i -E "localhost.*authorization" "$COOKIE_JAR" | awk '{print $7}')
+          # Pro debug: vypišme celý obsah cookies.txt, abychom viděli, jestli tam opravdu je 'authorization'
+          echo "→ Obsah cookies.txt:"
+          cat "$COOKIE_JAR"
+
+          # 4. Extrahovat JWT (cookie 'authorization')
+          #    Zjednodušeně: najdeme řádek obsahující 'authorization' a vezmeme sedmý sloupec (= value)
+          JWT=$(grep -i "authorization" "$COOKIE_JAR" | awk '{print $7}' | head -n 1 || true)
           if [ -z "$JWT" ]; then
             echo "❌ Chyba: V cookie-jar nebyla nalezena hodnota 'authorization'!"
             exit 1
           fi
 
-          # Uložit JWT jako výstup kroku
-          echo "jwt=$JWT" >> $GITHUB_OUTPUT
+          echo "→ Extrahovaný JWT token: $JWT"
+
+          # 5. Uložit JWT do výstupu kroku, aby na něj mohl navázat další job
+          echo "jwt=$JWT" >> "$GITHUB_OUTPUT"
           echo "✅ JWT token úspěšně získán a uložen jako job output."
-        shell: bash
+        # end of run
 
       - name: Tear down Docker Compose stack
         if: always()
+        shell: bash
         run: |
           echo "==> Clean up: Ukončuji Docker Compose stack…"
           docker compose -f docker-compose.hk2025.yml down --volumes
-        shell: bash
+
 
   introspection:
     name: GraphQL Introspection (using stored JWT)
@@ -107,6 +127,7 @@ jobs:
         uses: actions/checkout@v3
 
       - name: Start Docker Compose stack
+        shell: bash
         run: |
           echo "==> Spouštím Docker Compose stack na pozadí..."
           docker compose -f docker-compose.hk2025.yml up -d --build
@@ -117,8 +138,14 @@ jobs:
           sleep 30
 
       - name: HEAD request on GraphQL endpoint with Bearer token
+        shell: bash
         run: |
-          echo "Používám JWT: $JWT_TOKEN"
+          echo "→ Používám JWT: $JWT_TOKEN"
+          if [ -z "$JWT_TOKEN" ]; then
+            echo "❌ Chyba: JWT_TOKEN je prázdný! Znamená to, že předchozí job nevyprodukoval žádný token."
+            exit 1
+          fi
+
           HTTP_STATUS=$(
             curl -s -o /dev/null -w "%{http_code}" \
               -H "Authorization: Bearer $JWT_TOKEN" \
@@ -130,10 +157,10 @@ jobs:
             exit 1
           fi
           echo "✅ HEAD request úspěšný (status $HTTP_STATUS)."
-        shell: bash
 
       - name: Perform GraphQL Introspection Query
         id: introspect
+        shell: bash
         run: |
           echo "==> Provedení introspekčního dotazu na /api/gql s Bearer tokenem…"
           INTROSPECTION_QUERY='{"query":"{ __schema { types { name } } }"}'
@@ -150,11 +177,10 @@ jobs:
           echo "$RESPONSE" | grep '"__schema"' \
             && echo "✅ Introspection OK - nalezen klíč __schema." \
             || (echo "❌ Introspection selhala - nenalezen klíč __schema." && exit 1)
-        shell: bash
 
       - name: Tear down Docker Compose stack
         if: always()
+        shell: bash
         run: |
           echo "==> Clean up: Ukončuji Docker Compose stack…"
           docker compose -f docker-compose.hk2025.yml down --volumes
-        shell: bash
