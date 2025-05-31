@@ -1,8 +1,8 @@
 name: CI - GraphiQL Smoke Test (OAuth2 login, GET /graphiql)
-
+#* working
 on:
-  push:
-    branches: [ pipelines ]
+  # push:
+  #   branches: [ pipelines ]
     #branches: [ latest ]
   pull_request:
     branches: [ pipelines ]
