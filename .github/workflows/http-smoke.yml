@@ -21,21 +21,16 @@ jobs:
         uses: actions/checkout@v3
 
       - name: Start Docker Compose stack
-        run: |
-          # Spustíme celý stack na pozadí. Vše je dostupné na localhost:33001 (frontend:33001:8000)
-          docker-compose -f docker-compose.hk2025.yml up -d --build
+        run: docker compose -f docker-compose.hk2025.yml up -d --build
 
-      - name: Wait for frontend + podsystémy
-        run: |
-          echo "Čekám 30 sekund, aby se služby rozběhly a healthchecky prošly..."
-          sleep 30
-
+      - name: Wait for frontend + sub systems
+        run: sleep 30
+      - name: Check running containers
+        run: docker ps -a
       - name: Verify HTTP 200 on all service URLs
         run: |
           set -e
           echo "Ověřuji přístupnost jednotlivých URL (HTTP 200)…"
-
-          # Seznam „cest“, které má frontend proxyovat
           SERVICES=(
             "index"
             "ug"
@@ -49,11 +44,10 @@ jobs:
             "publications"
             "users"
           )
-
           for S in "${SERVICES[@]}"; do
             URL="http://localhost:33001/${S}/"
             echo -n "  → GET ${URL}… "
-            # -f = fail při jakékoliv 4xx/5xx odezvě, -I = HEAD request (jen hlavičky)
+            # -f = fail 4xx/5xx response, -I = HEAD request
             if curl -s -f -I "$URL" >/dev/null; then
               echo "OK"
             else
@@ -66,4 +60,4 @@ jobs:
         if: always()
         run: |
           echo "Clean up…"
-          docker-compose -f docker-compose.hk2025.yml down --volumes
+          docker compose -f docker-compose.hk2025.yml down --volumes
