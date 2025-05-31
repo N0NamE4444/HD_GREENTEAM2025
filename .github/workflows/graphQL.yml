@@ -159,8 +159,8 @@ jobs:
           RESPONSE=$(
             curl -v -X POST http://localhost:33001/api/gql \
               -H "Content-Type: application/json" \
-              -H "Cookie: authorization=$JWT_TOKEN" \
-              --data "$INTROSPECTION_QUERY" \
+              -b "cookies_auth.txt" \
+              --data "$INTROSPECTION_QUERY"
               || true
           )
 
