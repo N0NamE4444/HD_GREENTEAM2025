@@ -96,32 +96,42 @@ jobs:
             # optionally add other required keys
           )
 
-          # Variable to track if any file failed validation
+          # Flags and arrays to track overall and per-file status
           ANY_FAIL=false
+          OK_FILES=()
+          FAIL_FILES=()
 
           for FILE in "${FILES[@]}"; do
             echo "=============================================="
             echo "Checking file: $FILE"
             echo "----------------------------------------------"
 
+
+            FILE_FAIL=false
+
             if [ ! -f "$FILE" ]; then
               echo "File not found: $FILE"
+              FILE_FAIL=true
               ANY_FAIL=true
-              # Continue to next file; do not stop the whole action
+              FAIL_FILES+=("$FILE")
+              # Skip further checks for this file
               continue
             fi
 
+            # Validate JSON syntax
             echo "→ Validating JSON syntax for $FILE …"
             if ! jq empty "$FILE" 2>/dev/null; then
               echo "$FILE is not valid JSON."
+              FILE_FAIL=true
               ANY_FAIL=true
-              # Even if JSON is invalid, continue checking other files
+              FAIL_FILES+=("$FILE")
+              # Skip the key-check for invalid JSON
               continue
             fi
             echo "$FILE is valid JSON."
 
+            # Verify required top-level keys
             echo "→ Verifying required keys in $FILE …"
-            # Load keys from JSON (one key per line)
             FILE_KEYS=$(jq -r 'keys_unsorted[]' "$FILE")
             MISSING=false
 
@@ -136,15 +146,42 @@ jobs:
 
             if [ "$MISSING" = true ]; then
               echo "One or more required keys are missing in $FILE."
+              FILE_FAIL=true
               ANY_FAIL=true
+              FAIL_FILES+=("$FILE")
             else
               echo "All required keys are present in $FILE."
+            fi
+
+            # If no failure was detected, mark as OK
+            if [ "$FILE_FAIL" = false ]; then
+              OK_FILES+=("$FILE")
             fi
 
             echo
           done
 
           echo "=============================================="
+          # Summary of valid and invalid files
+          if [ "${#OK_FILES[@]}" -gt 0 ]; then
+            echo "Valid files:"
+            for F in "${OK_FILES[@]}"; do
+              echo "   • $F"
+            done
+          else
+            echo "No valid files found."
+          fi
+
+          if [ "${#FAIL_FILES[@]}" -gt 0 ]; then
+            echo "Invalid files:"
+            for F in "${FAIL_FILES[@]}"; do
+              echo "   • $F"
+            done
+          else
+            echo "No invalid files."
+          fi
+
+          # Final exit status
           if [ "$ANY_FAIL" = true ]; then
             echo "One or more systemdata JSON files FAILED validation."
             exit 1
