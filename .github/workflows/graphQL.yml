@@ -145,31 +145,38 @@ jobs:
       ########################################################################
       # Krok 3: GraphQL Introspection Query s cookie authorization=<JWT>
       ########################################################################
-      - name: Perform GraphQL Introspection Query (cookie-based auth)
+      - name: Perform GraphQL Introspection Query (using GitHub Secrets)
         shell: bash
+        env:
+          XSRF_TOKEN: ${{ secrets._XSRF }}
+          AUTH_TOKEN: ${{ secrets.AUTHORIZATION }}
         run: |
-          JWT_TOKEN="${{ steps.login_step.outputs.jwt }}"
-          echo "==> Provedení introspekčního dotazu na /api/gql s cookie auth…"
-          echo "→ (debug) použiji EXATNĚ tuto proměnnou: $JWT_TOKEN"
+          echo "==> Provedení introspekčního dotazu na /api/gql s cookie‐based auth ze Secretů…"
+          # GH Actions automaticky zamaskuje hodnoty, takže je v logu neuvidíte v plain textu
+          echo "→ (debug) XSRF_TOKEN: $XSRF_TOKEN"
+          echo "→ (debug) AUTH_TOKEN: ***"
 
-          # Zde DEFINUJEME query v proměnné
+          # Definice introspekčního dotazu
           INTROSPECTION_QUERY='{ "query": "{ __schema { types { name } } }" }'
 
-          # A teprve teď ji pošleme přímo přes proměnnou
+          # Odešleme oba cookie najednou: _xsrf + authorization
+          # Navíc pro jistotu přihodíme X-XSRFToken hlavičku (některé backendy ji vyžadují)
           RESPONSE=$(
             curl -v -X POST http://localhost:33001/api/gql \
               -H "Content-Type: application/json" \
-              -b "cookies_auth.txt" \
+              -H "Cookie: _xsrf=$XSRF_TOKEN; authorization=$AUTH_TOKEN" \
+              -H "X-XSRFToken: $XSRF_TOKEN" \
               --data "$INTROSPECTION_QUERY" \
-              || true
+            || true
           )
 
           echo "=== Introspection response: ==="
           echo "$RESPONSE"
 
+          # Ověříme, že odpověď obsahuje "__schema"
           echo "$RESPONSE" | grep '"__schema"' \
-            && echo "✅ Introspection OK - nalezen klíč __schema." \
-            || (echo "❌ Introspection selhala - nenalezen klíč __schema." && exit 1)
+            && echo "✅ Introspection OK – nalezen klíč __schema." \
+            || (echo "❌ Introspection selhala – nenalezen klíč __schema." && exit 1)
 
       ########################################################################
       # Krok 4: Tear down Docker Compose
