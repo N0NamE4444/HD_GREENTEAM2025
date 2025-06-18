@@ -1,0 +1,232 @@
+name: "Validate systemdata JSON Files"
+#* working - but some json files are invalid
+on:
+  # push:
+  #   #branches: [ latest ]
+  #   branches: [ pipelines ]
+  pull_request:
+    #branches: [ latest ]
+    branches: [ pipelines ]
+
+jobs:
+  validate-json:
+    name: "JSON Format & Key Validation"
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Validate JSON format and required keys
+        run: |
+          set -euo pipefail
+
+          # Find all JSON files matching the pattern
+          FILES=( systemdata*.json )
+          if [ -z "${FILES[*]}" ] || [ "${FILES[0]}" = "systemdata*.json" ]; then
+            echo "No files matched the pattern 'systemdata*.json'."
+            # Indicate failure, but stay in this step to write summary files
+            echo "true" > anyfail.flag
+            exit 0
+          fi
+
+          # Define required top-level keys (67 entries)
+          REQUIRED_KEYS=(
+            "rolecategories"
+            "roletypes"
+            "groupcategories"
+            "grouptypes"
+            "users"
+            "groups"
+            "roles"
+            "memberships"
+            "facilitytypes"
+            "facilities"
+            "acprograms"
+            "acprograms_studentstates"
+            "acprograms_students"
+            "acsubjects"
+            "acsemesters"
+            "actopics"
+            "aclessons"
+            "acprogramforms"
+            "acprogramlanguages"
+            "acprogramlevels"
+            "acprogramtitles"
+            "acprogramtypes"
+            "acclassificationlevels"
+            "acclassificationtypes"
+            "aclessontypes"
+            "acclassifications"
+            "plans"
+            "plan_lessons"
+            "plan_lessons_users"
+            "plan_lessons_facilities"
+            "plan_lessons_groups"
+            "events"
+            "eventtypes"
+            "eventinvitationtypes"
+            "eventpresencetypes"
+            "events_users"
+            "facilities_events"
+            "events_groups"
+            "projects"
+            "projecttypes"
+            "projectmilestones"
+            "projectcategories"
+            "projectfinances"
+            "projectfinancetypes"
+            "projectfinancecategories"
+            "formtypes"
+            "formcategories"
+            "formitemcategories"
+            "formitemtypes"
+            "statemachines"
+            "statemachinetypes"
+            "states"
+            "statetransitions"
+            "roletypelists"
+            "formrequests"
+            "formhistories"
+            "forms"
+            "formsections"
+            "formparts"
+            "formitems"
+            "surveys"
+            "surveytypes"
+            "surveyquestions"
+            "surveyquestiontypes"
+            "surveyanswers"
+            "externalidtypes"
+            "externalidcategories"
+            # optionally add other required keys
+          )
+
+          # Flags and arrays to track overall and per-file status
+          ANY_FAIL=false
+          OK_FILES=()
+          FAIL_FILES=()
+
+          # Ensure previous summary files are removed (if any)
+          rm -f ok.txt fail.txt anyfail.flag
+
+          for FILE in "${FILES[@]}"; do
+            echo "=============================================="
+            echo "Checking file: $FILE"
+            echo "----------------------------------------------"
+
+            FILE_FAIL=false
+
+            if [ ! -f "$FILE" ]; then
+              echo "File not found: $FILE"
+              FILE_FAIL=true
+              ANY_FAIL=true
+              FAIL_FILES+=("$FILE")
+              # Skip further checks for this file
+              continue
+            fi
+
+            # Validate JSON syntax
+            echo "→ Validating JSON syntax for $FILE …"
+            if ! jq empty "$FILE" 2>/dev/null; then
+              echo "$FILE is not valid JSON."
+              FILE_FAIL=true
+              ANY_FAIL=true
+              FAIL_FILES+=("$FILE")
+              # Skip the key-check for invalid JSON
+              continue
+            fi
+            echo "$FILE is valid JSON."
+
+            # Verify required top-level keys
+            echo "→ Verifying required keys in $FILE …"
+            FILE_KEYS=$(jq -r 'keys_unsorted[]' "$FILE")
+            MISSING=false
+
+            for KEY in "${REQUIRED_KEYS[@]}"; do
+              if ! grep -qx "$KEY" <<< "$FILE_KEYS"; then
+                echo "Missing required key '$KEY' in $FILE"
+                MISSING=true
+              else
+                echo "Found key '$KEY' in $FILE"
+              fi
+            done
+
+            if [ "$MISSING" = true ]; then
+              echo "One or more required keys are missing in $FILE."
+              FILE_FAIL=true
+              ANY_FAIL=true
+              FAIL_FILES+=("$FILE")
+            else
+              echo "All required keys are present in $FILE."
+            fi
+
+            # If no failure was detected, mark as OK
+            if [ "$FILE_FAIL" = false ]; then
+              OK_FILES+=("$FILE")
+            fi
+
+            echo
+          done
+
+          # Write OK and FAIL lists to files for the summary step
+          if [ "${#OK_FILES[@]}" -gt 0 ]; then
+            for F in "${OK_FILES[@]}"; do
+              echo "$F" >> ok.txt
+            done
+          fi
+
+          if [ "${#FAIL_FILES[@]}" -gt 0 ]; then
+            for F in "${FAIL_FILES[@]}"; do
+              echo "$F" >> fail.txt
+            done
+          fi
+
+          # Write ANY_FAIL flag
+          if [ "$ANY_FAIL" = true ]; then
+            echo "true" > anyfail.flag
+          else
+            echo "false" > anyfail.flag
+          fi
+
+          # Always exit 0 so that the summary step runs
+          exit 0
+
+      - name: Summary
+        run: |
+          set -euo pipefail
+
+          echo "=============================================="
+          echo "Validation Summary"
+          echo "=============================================="
+
+          if [ -f ok.txt ] && [ -s ok.txt ]; then
+            echo "Valid files:"
+            while IFS= read -r line; do
+              echo "   • $line"
+            done < ok.txt
+          else
+            echo "No valid files found."
+          fi
+
+          if [ -f fail.txt ] && [ -s fail.txt ]; then
+            echo
+            echo "Invalid files:"
+            while IFS= read -r line; do
+              echo "   • $line"
+            done < fail.txt
+          else
+            echo
+            echo "No invalid files."
+          fi
+
+          # Determine final exit code based on the flag
+          if [ -f anyfail.flag ] && grep -qx "true" anyfail.flag; then
+            echo
+            echo "One or more systemdata JSON files FAILED validation."
+            exit 1
+          else
+            echo
+            echo "All systemdata JSON files passed validation."
+            exit 0
+          fi

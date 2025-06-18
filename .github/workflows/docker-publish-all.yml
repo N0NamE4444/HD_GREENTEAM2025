@@ -1,0 +1,84 @@
+name: Build and Publish UOIS GQL Docker Images
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag for Docker images'
+        required: true
+        default: '1.0.0'
+      additional_tag:
+        description: 'Optional additional tag for Docker images'
+        required: false
+        default: ''
+      include_file:
+        description: 'Select the file to include in the Docker build'
+        required: true
+        type: choice
+        options:
+            - systemdata.min.json
+            - systemdata.rnd.json
+            - systemdata.rnd0.json
+            - systemdata.all.json
+        default: systemdata.min.json
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    env:
+      DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+      DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+    steps:
+      - name: Checkout this repository
+        uses: actions/checkout@v3
+
+      - name: Define repository list
+        id: define_repos
+        run: |
+          echo "REPO_LIST=_uois,gql_ug,gql_office,gql_facilities,gql_events,gql_lessons,gql_admissions,gql_granting,gql_surveys,gql_publications,gql_externalids,gql_projects" >> $GITHUB_ENV
+
+      - name: Authenticate Docker Hub
+        run: |
+          echo "${DOCKER_PASSWORD}" | docker login -u "${DOCKER_USERNAME}" --password-stdin
+
+      - name: Clone, Build, and Push Docker Images
+        run: |
+          mkdir -p cloned_repos
+          IFS=',' read -r -a repos <<< "${REPO_LIST}"
+          include_file="${{ github.event.inputs.include_file }}"
+          for repo in "${repos[@]}"; do
+            echo "Cloning repository: $repo"
+            git clone --depth 1 https://github.com/${DOCKER_USERNAME}/$repo.git cloned_repos/$repo
+
+            if [ -f "cloned_repos/$repo/Dockerfile" ]; then
+              # Sanitize repository name to ensure valid Docker image name
+              sanitized_repo_name=$(echo "$repo" | sed 's/^_//;s/[^a-z0-9_.-]//g')
+
+              # Copy systemdata.json into the cloned repository
+              echo "Copying $include_file to $repo"
+              cp "$include_file" cloned_repos/$repo/
+
+              image_name="${DOCKER_USERNAME}/${sanitized_repo_name}"
+              version="${{ github.event.inputs.version }}"
+              additional_tag="${{ github.event.inputs.additional_tag }}"
+
+              echo "Building Docker image: $image_name"
+              docker build -t $image_name:latest -t $image_name:$version cloned_repos/$repo
+
+              # Apply optional additional tag if provided
+              if [ ! -z "$additional_tag" ]; then
+                echo "Applying additional tag: $additional_tag"
+                docker tag $image_name:latest $image_name:$additional_tag
+              fi
+
+              echo "Pushing Docker image: $image_name"
+              docker push $image_name:latest
+              docker push $image_name:$version
+
+              # Push additional tag if provided
+              if [ ! -z "$additional_tag" ]; then
+                docker push $image_name:$additional_tag
+              fi
+            else
+              echo "No Dockerfile found in $repo, skipping..."
+            fi
+          done

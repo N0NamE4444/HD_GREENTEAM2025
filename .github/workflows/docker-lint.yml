@@ -1,0 +1,48 @@
+name: "Lint Dockerfiles"
+#* works
+on:
+  push:
+    #branches: [ latest ]
+    branches: [ pipelines ]
+    paths:
+      - 'Dockerfile'
+      - 'docker-compose*.yml'
+  pull_request:
+    #branches: [ latest ]
+    branches: [ pipelines ]
+    # path - only run if the files in question are changed
+    paths:
+      - 'Dockerfile'
+      - 'docker-compose*.yml'
+
+jobs:
+  lint-docker:
+    name: "Dockerfile & docker-compose Lint"
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Lint Dockerfile with hadolint
+        run: |
+          echo "Linting Dockerfile..."
+          # Use the official hadolint image to lint the Dockerfile via stdin
+          docker run --rm -i hadolint/hadolint < Dockerfile
+
+      - name: Validate docker-compose files
+        run: |
+          echo "Searching for docker-compose files..."
+          # Find all files matching the pattern docker-compose*.yml
+          FILES=$(ls docker-compose*.yml 2>/dev/null || true)
+          if [ -z "$FILES" ]; then
+            echo "No docker-compose files found, skipping this step."
+            exit 0
+          fi
+
+          # For each found file, run 'docker-compose config --quiet' to validate syntax
+          for FILE in $FILES; do
+            echo "Linting $FILE..."
+            docker-compose -f "$FILE" config --quiet
+            echo "$FILE is valid."
+          done
