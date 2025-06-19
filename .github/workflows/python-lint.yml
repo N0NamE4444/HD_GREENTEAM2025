@@ -4,10 +4,10 @@ name: CI - Python Lint Only
 on:
   # push:
   #   #branches: [ latest ]
-#    branches: [ pipelines ]
+#    branches: [ main ]
   pull_request:
     #branches: [ latest ]
-    branches: [ pipelines ]
+    branches: [ main ]
 
 jobs:
   python-lint:
