@@ -14,5 +14,6 @@ sqlalchemy-cockroachdb
 aiodataloader
 strawberry-graphql
 
-https://github.com/hrbolek/PyMockOAuthServer/archive/refs/heads/main.zip
-https://github.com/hrbolek/uoishelpers/archive/refs/heads/main.zip
+git+https://github.com/hrbolek/PyMockOAuthServer.git@main#egg=PyMockOAuthServer
+git+https://github.com/hrbolek/uoishelpers.git@main#egg=uoishelpers
+
