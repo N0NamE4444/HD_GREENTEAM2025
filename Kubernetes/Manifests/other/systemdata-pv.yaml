@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: systemdata-nfs-pv
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes:
+    - ReadOnlyMany
+  nfs:
+    server: 160.216.223.79
+    path: /srv/k8s-share
+  persistentVolumeReclaimPolicy: Retain

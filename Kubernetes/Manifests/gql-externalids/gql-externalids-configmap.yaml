@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gql-externalids-config
+data:
+  POSTGRES_HOST: postgres_gql:5432
+  GQLUG_ENDPOINT_URL: http://gql_ug:8000/gql
+  JWTPUBLICKEYURL: http://frontend:8000/oauth/publickey
+  JWTRESOLVEUSERPATHURL: http://frontend:8000/oauth/userinfo
+  DEMO: "False"
+  DEMODATA: "True"

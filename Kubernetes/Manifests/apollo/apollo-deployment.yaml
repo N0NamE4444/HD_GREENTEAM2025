@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: apollo
+  labels:
+    app: apollo
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: apollo
+  template:
+    metadata:
+      labels:
+        app: apollo
+    spec:
+      securityContext:
+        runAsNonRoot: true
+      containers:
+        - name: apollo
+          image: hrbolek/apollo_federation
+          ports:
+            - containerPort: 3000
+          env:
+            - name: PORT
+              value: "3000"
+            - name: SERVICES
+              valueFrom:
+                configMapKeyRef:
+                  name: apollo-config
+                  key: SERVICES
+          readinessProbe:
+            tcpSocket:
+              port: 3000
+            initialDelaySeconds: 60
+            periodSeconds: 60
+            timeoutSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            tcpSocket:
+              port: 3000
+            initialDelaySeconds: 60
+            periodSeconds: 60
+            timeoutSeconds: 10
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "1000m"
+              memory: "512Mi"
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false

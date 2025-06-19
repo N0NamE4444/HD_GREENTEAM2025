@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres-gql-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres-gql
+  template:
+    metadata:
+      labels:
+        app: postgres-gql
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+      containers:
+        - name: postgres
+          image: postgres:15.5
+          ports:
+            - containerPort: 5432
+          volumeMounts:
+            - mountPath: /var/lib/postgres-gql/data
+              name: postgres-gql
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-gql-secret
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-gql-secret
+                  key: POSTGRES_PASSWORD
+            - name: POSTGRES_DB
+              valueFrom:
+                configMapKeyRef:
+                  name: postgres-gql-config
+                  key: POSTGRES_DB
+          readinessProbe:
+            exec:
+              command: ["pg_isready"]
+            initialDelaySeconds: 5
+            periodSeconds: 60
+            timeoutSeconds: 10
+            failureThreshold: 5
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "1000m "
+              memory: "512Mi"
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+      volumes:
+        - name: postgres-gql
+          persistentVolumeClaim:
+            claimName: postgres-gql-volume-claim

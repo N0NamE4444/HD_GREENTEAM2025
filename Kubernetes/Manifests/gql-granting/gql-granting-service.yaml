@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: gql-granting
+spec:
+  selector:
+    app: gql-granting
+  ports:
+    - protocol: TCP
+      port: 8000
+      targetPort: 8000
