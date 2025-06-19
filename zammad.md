@@ -1,3 +1,14 @@
+<h2>Popis ticketovacího systému Zammad</h2>
+<p>Zammad je open-source ticketovací systém určený ke správě uživatelských požadavků. Umožňuje příjem a zpracování tiketů z různých kanálů (e-mail, chat, telefon, sociální sítě). Nabízí webové rozhraní, přehledné řízení požadavků, historii komunikace, správu práv a možnost automatizace úkolů.</p>
+
+<h2>Důvod výběru</h2>
+<li>Open source </li>
+<li>Více kanálové rozhraní</li>
+<li>Podpora českého jazyka</li>
+<li>Jednoduchost a přehlednost</li>
+<li>Integrace API - GitHub a další nástroje</li>
+<li>Nastavení rolí a skupin</li>
+
 <h2>Dokončené úkoly</h2>  
 <li>Nasazení Zammad pomocí Docker Compose.</li>
 <li>Inicializace databáze a spuštění všech kontejnerů.</li>
