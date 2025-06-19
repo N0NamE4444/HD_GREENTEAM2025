@@ -19,6 +19,7 @@ class UserModel(BaseModel):
     id = Column(String, primary_key=True, comment="primary key")
     email = Column(String)
     password = Column(String)
+    salt = Column(String)
 
 def ComposeConnectionString():
     """Odvozuje connectionString z promennych prostredi (nebo z Docker Envs, coz je fakticky totez).
@@ -66,15 +67,17 @@ def getsalt():
     assert result is not None, "SALT environment variable must be explicitly defined"
     return result.encode(encoding="utf-8")
 
-def hashfunction(value= " "):
-    result = hashlib.pbkdf2_hmac('sha256', value.encode('utf-8'), getsalt(), 100000)    
+def hashfunction(value= " ",salt=getsalt):
+    _salt = salt() if callable(salt) else salt
+    result = hashlib.pbkdf2_hmac('sha256', value.encode('utf-8'), _salt, 100000)    
     return result.hex()
 
 async def passwordValidator(asyncSessionMaker, email, rawpassword):
     loader = createLoader(asyncSessionMaker)
-    hashedpassword = hashfunction(rawpassword)
+    
     rows = await loader.filter_by(email=email)
     row = next(rows, None)
+    hashedpassword = hashfunction(rawpassword, row.salt)
     logging.info(f"passwordValidator loader returns {row} for email {email}")
     return False if row is None else row.password == hashedpassword
 
@@ -101,7 +104,9 @@ def getDemoData():
         user = users[0]
         user["email"] = adminEmail
         user["password"] = adminPassword
-    
+    for user in users:
+        user["salt"] = os.urandom(16).hex()
+        #user["salt"] = "aaa"
     return jsonData
 
 async def initDB(asyncSessionMaker):
@@ -122,7 +127,9 @@ async def initDB(asyncSessionMaker):
             hashedpassword = hashfunction(password)
             id = row.get("id", None)
             assert id is not None, f"user {row} has no id"
-            user = UserModel(id=id, email=email, password=hashedpassword)
+            salt = row.get("salt", None)
+            assert salt is not None, f"user {row} has no salt"
+            user = UserModel(id=id, email=email, password=hashedpassword, salt=salt)
             row = await loader.load(id)
             # logging.info(f"got {row}")
             try:
@@ -132,3 +139,4 @@ async def initDB(asyncSessionMaker):
             except:
                 pass
 
+ 

@@ -8,7 +8,7 @@ x-services-volume:
 
 services:
   frontend:
-    image: hrbolek/frontend:0.9.0
+    image: frontend_local
     environment:
       - DEMO=False
       - DEMODATA=True
