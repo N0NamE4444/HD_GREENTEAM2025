@@ -3,10 +3,10 @@ name: HTTP Smoke Tests
 on:
   # push:
   #   #branches: [ latest ]
-  #   branches: [ main ]
+#    branches: [ pipelines ]
   pull_request:
     #branches: [ latest ]
-    branches: [ main ]
+    branches: [ pipelines ]
     
 jobs:
   http-smoke:

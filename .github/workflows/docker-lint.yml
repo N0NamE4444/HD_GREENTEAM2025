@@ -3,13 +3,13 @@ name: "Lint Dockerfiles"
 on:
   push:
     #branches: [ latest ]
-    branches: [ main ]
+    branches: [ pipelines ]
     paths:
       - 'Dockerfile'
       - 'docker-compose*.yml'
   pull_request:
     #branches: [ latest ]
-    branches: [ main ]
+    branches: [ pipelines ]
     # path - only run if the files in question are changed
     paths:
       - 'Dockerfile'
