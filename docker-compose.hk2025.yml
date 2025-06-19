@@ -483,19 +483,21 @@ services:
     #   - alertmanager:alertmanager
     # depends_on:
     #   - cadvisor
-
   grafana:
     image: grafana/grafana
+    container_name: grafana
     user: '472'
-    restart: always
-    environment:
-      GF_INSTALL_PLUGINS: 'grafana-clock-panel,grafana-simple-json-datasource'
-    # volumes:
-    #   - grafana_data:/var/lib/grafana
-    #   - ./grafana/provisioning/:/etc/grafana/provisioning/
-    # env_file:
-    #   - ./grafana/config.monitoring
     ports:
-      - 8300:3000
+      - "8300:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    restart: unless-stopped
     depends_on:
       - prometheus
+volumes:
+  grafana-data:
