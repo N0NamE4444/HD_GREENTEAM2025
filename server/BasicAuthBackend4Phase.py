@@ -73,11 +73,13 @@ class BasicAuthBackend4Phase(AuthenticationBackend):
         # 3. overit jwt (lokalne)
         for i in range(2):
             try:
-                jwtdecoded = jwt.decode(jwt=jwtsource, key=publickey, algorithms=["RS256"])
+                jwtdecoded = jwt.decode(jwt=jwtsource, key=publickey, algorithms=["RS256"], options={"verify_exp": True})
                 break
             except jwt.InvalidSignatureError as e:
                 # je mozne ulozit key do cache a pri chybe si key ziskat (obnovit) a provest revalidaci
                 print(e)
+            except jwt.ExpiredSignatureError:
+                raise AuthenticationError("Token has expired")    
             if (i == 1):
                 # klic byl aktualizovan a presto doslo k vyjimce
                 raise AuthenticationError("Invalid signature")

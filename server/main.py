@@ -2,8 +2,9 @@ import logging
 import os
 import asyncio
 import aiohttp
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, RedirectResponse, HTMLResponse
+from jwt import ExpiredSignatureError, InvalidSignatureError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from contextlib import asynccontextmanager
 
@@ -240,7 +241,14 @@ async def hello(requets: Request):
     print(f"have pktext={pktext}")
     logging.info(f"have pktext={pktext}")
     pkey = pktext.replace('"', "").replace("\\n", "\n")
-    jwtdecoded = jwt.decode(jwt=token, key=pkey, algorithms=["RS256"], options={"verify_exp": True})
+    try:
+        jwtdecoded = jwt.decode(jwt=token, key=pkey, algorithms=["RS256"], options={"verify_exp": True})
+    except ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expired")
+    except InvalidSignatureError:
+        raise HTTPException(status_code=401, detail="Invalid signature")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid token: {e}")
     print(f"jwtdecoded = {jwtdecoded}")
     logging.info(f"jwtdecoded = {jwtdecoded}")
     userid = jwtdecoded["user_id"]

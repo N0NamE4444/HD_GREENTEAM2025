@@ -78,6 +78,8 @@ class BasicAuthBackend(AuthenticationBackend):
             except jwt.InvalidSignatureError as e:
                 # je mozne ulozit key do cache a pri chybe si key ziskat (obnovit) a provest revalidaci
                 print(e)
+            except jwt.ExpiredSignatureError:
+                raise AuthenticationError("Token has expired")    
             if (i == 1):
                 # klic byl aktualizovan a presto doslo k vyjimce
                 raise AuthenticationError("Invalid signature")
