@@ -1,0 +1,96 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  labels:
+    app: frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+    spec:
+      containers:
+        - name: frontend
+          image: hrbolek/frontend:0.9.0
+          ports:
+            - containerPort: 8000
+          env:
+            - name: DEMO
+              valueFrom:
+                configMapKeyRef:
+                  name: frontend-config
+                  key: DEMO
+            - name: DEMODATA
+              valueFrom:
+                configMapKeyRef:
+                  name: frontend-config
+                  key: DEMODATA
+            - name: POSTGRES_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: postgres-credentials-config
+                  key: POSTGRES_HOST
+            - name: GQL_PROXY
+              valueFrom:
+                configMapKeyRef:
+                  name: frontend-config
+                  key: GQL_PROXY
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials-secret
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials-secret
+                  key: POSTGRES_PASSWORD
+            - name: POSTGRES_DB
+              valueFrom:
+                configMapKeyRef:
+                  name: postgres-credentials-config
+                  key: POSTGRES_DB
+            - name: SALT
+              valueFrom:
+                secretKeyRef:
+                  name: frontend-secret
+                  key: SALT
+            - name: ADMIN_DEFAULT_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: frontend-secret
+                  key: ADMIN_DEFAULT_EMAIL
+            - name: ADMIN_DEFAULT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: frontend-secret
+                  key: ADMIN_DEFAULT_PASSWORD
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8000
+            initialDelaySeconds: 60
+            periodSeconds: 60
+            timeoutSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8000
+            initialDelaySeconds: 60
+            periodSeconds: 60
+            timeoutSeconds: 10
+            failureThreshold: 3
+          volumeMounts:
+            - name: systemdata-volume
+              mountPath: /app/systemdata.json
+              subPath: systemdata.json
+      volumes:
+        - name: systemdata-volume
+          persistentVolumeClaim:
+            claimName: systemdata-nfs-pvc

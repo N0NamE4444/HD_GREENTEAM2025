@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: gql-externalids
+spec:
+  selector:
+    app: gql-externalids
+  ports:
+    - protocol: TCP
+      port: 8000
+      targetPort: 8000

@@ -1,0 +1,82 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gql-externalids
+  labels:
+    app: gql-externalids
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gql-externalids
+  template:
+    metadata:
+      labels:
+        app: gql-externalids
+    spec:
+      containers:
+        - name: gql-externalids
+          image: hrbolek/gql_externalids:0.8.7
+          ports:
+            - containerPort: 8000
+          env:
+            - name: POSTGRES_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: postgres-gql-config
+                  key: POSTGRES_HOST
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-gql-secret
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-gql-secret
+                  key: POSTGRES_PASSWORD
+            - name: POSTGRES_DB
+              valueFrom:
+                configMapKeyRef:
+                  name: postgres-gql-config
+                  key: POSTGRES_DB
+            - name: GQLUG_ENDPOINT_URL
+              value: "http://gql_ug:8000/gql"
+            - name: JWTPUBLICKEYURL
+              value: "http://frontend:8000/oauth/publickey"
+            - name: JWTRESOLVEUSERPATHURL
+              value: "http://frontend:8000/oauth/userinfo"
+            - name: DEMO
+              value: "False"
+            - name: DEMODATA
+              value: "True"
+          readinessProbe:
+            httpGet:
+              path: /gql
+              port: 8000
+              httpHeaders:
+                - name: Content-Type
+                  value: application/json
+            initialDelaySeconds: 60
+            periodSeconds: 60
+            timeoutSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /gql
+              port: 8000
+              httpHeaders:
+                - name: Content-Type
+                  value: application/json
+            initialDelaySeconds: 60
+            periodSeconds: 60
+            timeoutSeconds: 10
+            failureThreshold: 3
+          volumeMounts:
+            - name: systemdata-volume
+              mountPath: /app/data/systemdata.json
+              subPath: systemdata.json
+      volumes:
+        - name: systemdata-volume
+          persistentVolumeClaim:
+            claimName: systemdata-nfs-pvc

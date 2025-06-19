@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: postgres-gql-volume
+  labels:
+    type: local
+    app: postgres-gql
+spec:
+  storageClassName: manual
+  capacity:
+    storage: 70Gi
+  accessModes:
+    - ReadWriteMany
+  hostPath:
+    path: /data/postgres-gql

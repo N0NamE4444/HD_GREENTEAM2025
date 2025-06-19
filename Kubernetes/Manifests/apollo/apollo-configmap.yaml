@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: apollo-config
+data:
+  SERVICES: |
+    [
+      {"name": "ug", "url": "http://gql-ug:8000/gql"},
+      {"name": "forms", "url": "http://gql-forms:8000/gql"},
+      {"name": "granting", "url": "http://gql-granting:8000/gql"},
+      {"name": "facilities", "url": "http://gql-facilities:8000/gql"},
+      {"name": "events", "url": "http://gql-events:8000/gql"},
+      {"name": "publications", "url": "http://gql-publications:8000/gql"},
+      {"name": "projects", "url": "http://gql-projects:8000/gql"},
+      {"name": "lessons", "url": "http://gql-lessons:8000/gql"},
+      {"name": "surveys", "url": "http://gql-surveys:8000/gql"},
+      {"name": "externalids", "url": "http://gql-externalids:8000/gql"}
+    ]
