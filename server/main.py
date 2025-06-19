@@ -240,7 +240,7 @@ async def hello(requets: Request):
     print(f"have pktext={pktext}")
     logging.info(f"have pktext={pktext}")
     pkey = pktext.replace('"', "").replace("\\n", "\n")
-    jwtdecoded = jwt.decode(jwt=token, key=pkey, algorithms=["RS256"])
+    jwtdecoded = jwt.decode(jwt=token, key=pkey, algorithms=["RS256"], options={"verify_exp": True})
     print(f"jwtdecoded = {jwtdecoded}")
     logging.info(f"jwtdecoded = {jwtdecoded}")
     userid = jwtdecoded["user_id"]

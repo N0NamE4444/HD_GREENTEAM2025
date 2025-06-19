@@ -73,7 +73,7 @@ class BasicAuthBackend(AuthenticationBackend):
         # 3. overit jwt (lokalne)
         for i in range(2):
             try:
-                jwtdecoded = jwt.decode(jwt=jwtsource, key=publickey, algorithms=["RS256"])
+                jwtdecoded = jwt.decode(jwt=jwtsource, key=publickey, algorithms=["RS256"], options={"verify_exp": True})
                 break
             except jwt.InvalidSignatureError as e:
                 # je mozne ulozit key do cache a pri chybe si key ziskat (obnovit) a provest revalidaci
@@ -113,13 +113,30 @@ class BasicAuthBackend(AuthenticationBackend):
     
 from starlette.requests import HTTPConnection
 from starlette.responses import PlainTextResponse, Response, RedirectResponse
-
+from urllib.parse import quote
+import re
+    
 class BasicAuthenticationMiddleware302(AuthenticationMiddleware):
     @staticmethod
     def default_on_error(conn: HTTPConnection, exc: Exception) -> Response:
-        where = conn.url.path
-        result = RedirectResponse(f"/oauth/login2?redirect_uri={where}", status_code=302)
+        original_path = conn.url.path
+        
+        # Ověření, zda cesta začíná lomítkem (relativní cesta)
+        if not original_path.startswith('/'):
+            # Pokud ne, použijeme výchozí bezpečnou cestu (kořen)
+            original_path = '/'
+        
+        # Ošetření potenciálně nebezpečných znaků v cestě
+        sanitized_path = re.sub(r'/{2,}', '/', original_path)  # Nahradit // za /
+        sanitized_path = sanitized_path.replace('\\', '/')      # Nahradit zpětná lomítka
+        
+        # URL-encoding pro bezpečné předání v query stringu
+        safe_redirect = quote(sanitized_path, safe='')
+        
+        login_url = f"/oauth/login2?redirect_uri={safe_redirect}"
+        result = RedirectResponse(login_url, status_code=302)
         result.delete_cookie("authorization")
+        
         return result
 
 class BasicAuthenticationMiddleware404(AuthenticationMiddleware):
