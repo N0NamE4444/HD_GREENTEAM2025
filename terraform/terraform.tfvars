@@ -1,1 +1,5 @@
-environment = "docker"
+resource_group_name            = "rg-hk2025-app"
+location                       = "North Europe"
+container_app_environment_name = "cae-hk2025-environment"
+postgres_password              = "YourSecurePassword123!"
+subscription_id                = "DOPLNIT TU"
